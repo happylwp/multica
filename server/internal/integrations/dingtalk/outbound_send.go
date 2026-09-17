@@ -17,6 +17,10 @@ const (
 	// endpoints. Keep this aligned with DingTalk's endpoint contract instead of
 	// inferring a template migration from received interactive-card payloads.
 	msgKeyMarkdown = "sampleMarkdown"
+	// sampleFile is the documented file template. mediaId comes from
+	// POST /v1.0/robot/messageFiles/upload; local attachments cannot use
+	// sampleImageMsg because that template requires a public photoURL.
+	msgKeyFile = "sampleFile"
 
 	// p2p (1:1) proactive send; group send.
 	pathSendP2P   = "/v1.0/robot/oToMessages/batchSend"
@@ -188,9 +192,14 @@ func escapeMarkdownText(text string) string {
 	).Replace(text)
 }
 
-// sendOne posts a single rendered message, refreshing the token once on 401.
+// sendOne posts a single rendered Markdown message, refreshing the token once on 401.
 func (s *sender) sendOne(ctx context.Context, target sendTarget, msgParam string) (string, error) {
-	path, body, err := s.request(target, msgParam)
+	return s.sendOneKeyed(ctx, target, msgKeyMarkdown, msgParam)
+}
+
+// sendOneKeyed posts a single rendered message with an explicit msgKey.
+func (s *sender) sendOneKeyed(ctx context.Context, target sendTarget, msgKey, msgParam string) (string, error) {
+	path, body, err := s.request(target, msgKey, msgParam)
 	if err != nil {
 		return "", err
 	}
@@ -217,7 +226,10 @@ func (s *sender) sendOne(ctx context.Context, target sendTarget, msgParam string
 
 // request builds the endpoint + body for a target. A 1:1 send needs a recipient
 // staff id; a group send needs the group's openConversationId.
-func (s *sender) request(target sendTarget, msgParam string) (string, map[string]any, error) {
+func (s *sender) request(target sendTarget, msgKey, msgParam string) (string, map[string]any, error) {
+	if msgKey == "" {
+		msgKey = msgKeyMarkdown
+	}
 	if target.ConversationType == convTypeP2P {
 		if target.StaffID == "" {
 			return "", nil, errors.New("dingtalk: 1:1 send missing recipient staff id")
@@ -225,7 +237,7 @@ func (s *sender) request(target sendTarget, msgParam string) (string, map[string
 		return pathSendP2P, map[string]any{
 			"robotCode": s.robotCode,
 			"userIds":   []string{target.StaffID},
-			"msgKey":    msgKeyMarkdown,
+			"msgKey":    msgKey,
 			"msgParam":  msgParam,
 		}, nil
 	}
@@ -235,7 +247,7 @@ func (s *sender) request(target sendTarget, msgParam string) (string, map[string
 	body := map[string]any{
 		"robotCode":          s.robotCode,
 		"openConversationId": target.ConversationID,
-		"msgKey":             msgKeyMarkdown,
+		"msgKey":             msgKey,
 		"msgParam":           msgParam,
 	}
 	return pathSendGroup, body, nil

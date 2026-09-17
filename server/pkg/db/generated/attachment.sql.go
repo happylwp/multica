@@ -942,6 +942,60 @@ func (q *Queries) ListAttachmentsByIssue(ctx context.Context, arg ListAttachment
 	return items, nil
 }
 
+const listAttachmentsByIssueAndComment = `-- name: ListAttachmentsByIssueAndComment :many
+-- Attachments bound to one comment on a specific issue. DingTalk issue-done
+-- notify uses this to forward the terminal agent comment's files; issue_id is
+-- a defense-in-depth owner guard so a comment id from another issue cannot
+-- leak files.
+SELECT id, workspace_id, issue_id, comment_id, uploader_type, uploader_id, filename, url, content_type, size_bytes, created_at, chat_session_id, chat_message_id, task_id, source_context_id FROM attachment
+WHERE workspace_id = $1
+  AND issue_id = $2
+  AND comment_id = $3
+ORDER BY created_at ASC
+`
+
+type ListAttachmentsByIssueAndCommentParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	IssueID     pgtype.UUID `json:"issue_id"`
+	CommentID   pgtype.UUID `json:"comment_id"`
+}
+
+func (q *Queries) ListAttachmentsByIssueAndComment(ctx context.Context, arg ListAttachmentsByIssueAndCommentParams) ([]Attachment, error) {
+	rows, err := q.db.Query(ctx, listAttachmentsByIssueAndComment, arg.WorkspaceID, arg.IssueID, arg.CommentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Attachment{}
+	for rows.Next() {
+		var i Attachment
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.IssueID,
+			&i.CommentID,
+			&i.UploaderType,
+			&i.UploaderID,
+			&i.Filename,
+			&i.Url,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.CreatedAt,
+			&i.ChatSessionID,
+			&i.ChatMessageID,
+			&i.TaskID,
+			&i.SourceContextID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAttachmentsBySourceContext = `-- name: ListAttachmentsBySourceContext :many
 SELECT id, workspace_id, issue_id, comment_id, uploader_type, uploader_id, filename, url, content_type, size_bytes, created_at, chat_session_id, chat_message_id, task_id, source_context_id FROM attachment
 WHERE workspace_id = $1

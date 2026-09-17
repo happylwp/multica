@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -157,6 +159,42 @@ func (c *Client) messageFileDownloadURL(ctx context.Context, appKey, appSecret, 
 	return out.DownloadUrl, nil
 }
 
+// uploadRobotMedia POSTs the file as multipart/form-data to
+// /v1.0/robot/messageFiles/upload and returns the mediaId used by sampleFile.
+func (c *Client) uploadRobotMedia(ctx context.Context, accessToken, robotCode, filename string, data []byte) (string, error) {
+	filename = path.Base(strings.TrimSpace(filename))
+	if filename == "" || filename == "." {
+		filename = "attachment"
+	}
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	if err := w.WriteField("robotCode", robotCode); err != nil {
+		return "", fmt.Errorf("dingtalk: write robotCode: %w", err)
+	}
+	if err := w.WriteField("mediaType", "file"); err != nil {
+		return "", fmt.Errorf("dingtalk: write mediaType: %w", err)
+	}
+	part, err := w.CreateFormFile("file", filename)
+	if err != nil {
+		return "", fmt.Errorf("dingtalk: create file part: %w", err)
+	}
+	if _, err := part.Write(data); err != nil {
+		return "", fmt.Errorf("dingtalk: write file part: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return "", fmt.Errorf("dingtalk: close multipart: %w", err)
+	}
+	var out messageFileUploadResponse
+	if err := c.postMultipart(ctx, messageFilesUploadPath, accessToken, w.FormDataContentType(), &buf, &out); err != nil {
+		return "", err
+	}
+	id := out.id()
+	if id == "" {
+		return "", fmt.Errorf("dingtalk: messageFiles/upload returned empty mediaId")
+	}
+	return id, nil
+}
+
 // postJSON posts body to path with the access token header and decodes a 2xx
 // response into out (out may be nil to ignore the body). It returns
 // errUnauthorized on HTTP 401 so the caller can refresh the token and retry.
@@ -195,6 +233,43 @@ func (c *Client) postJSON(ctx context.Context, path, accessToken string, body, o
 	if out != nil && len(respBody) > 0 {
 		if err := json.Unmarshal(respBody, out); err != nil {
 			return fmt.Errorf("dingtalk: decode %s response: %w", path, err)
+		}
+	}
+	return nil
+}
+
+// postMultipart is postJSON for a multipart body (robot media upload).
+func (c *Client) postMultipart(ctx context.Context, apiPath, accessToken, contentType string, body io.Reader, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiBase+apiPath, body)
+	if err != nil {
+		return fmt.Errorf("dingtalk: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("x-acs-dingtalk-access-token", accessToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("dingtalk: request %s: %w", apiPath, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return errUnauthorized
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var apiErr apiError
+		_ = json.Unmarshal(respBody, &apiErr)
+		return &apiRequestError{
+			Path:       apiPath,
+			StatusCode: resp.StatusCode,
+			Code:       apiErr.Code,
+			Message:    apiErr.Message,
+		}
+	}
+	if out != nil && len(respBody) > 0 {
+		if err := json.Unmarshal(respBody, out); err != nil {
+			return fmt.Errorf("dingtalk: decode %s response: %w", apiPath, err)
 		}
 	}
 	return nil

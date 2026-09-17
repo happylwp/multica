@@ -65,9 +65,29 @@ func (e *apiRequestError) Error() string {
 // persist or log either value.
 const messageFilesDownloadPath = "/v1.0/robot/messageFiles/download"
 
+// messageFilesUploadPath uploads a robot media file and returns a mediaId for
+// sampleFile / sampleAudio messages. Verified against DingTalk OpenAPI usage:
+// multipart POST with robotCode + mediaType + file, not the 钉盘 two-step
+// uploadInfos flow (uploadKey/resourceUrl).
+const messageFilesUploadPath = "/v1.0/robot/messageFiles/upload"
+
 // messageFileDownloadResponse is the success shape of messageFilesDownloadPath.
 type messageFileDownloadResponse struct {
 	DownloadUrl string `json:"downloadUrl"`
+}
+
+// messageFileUploadResponse is the success shape of messageFilesUploadPath.
+// Official robot upload returns camelCase mediaId; accept media_id as well.
+type messageFileUploadResponse struct {
+	MediaID    string `json:"mediaId"`
+	MediaIDAlt string `json:"media_id"`
+}
+
+func (r messageFileUploadResponse) id() string {
+	if r.MediaID != "" {
+		return r.MediaID
+	}
+	return r.MediaIDAlt
 }
 
 // fetchAccessToken mints an access_token for (appKey, appSecret). baseURL
