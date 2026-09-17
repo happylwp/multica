@@ -25,6 +25,10 @@ func (s *sender) sendFile(ctx context.Context, target sendTarget, filename, file
 	if err != nil {
 		return "", err
 	}
+	return s.sendSampleFile(ctx, target, filename, fileType, mediaID)
+}
+
+func (s *sender) sendSampleFile(ctx context.Context, target sendTarget, filename, fileType, mediaID string) (string, error) {
 	if strings.TrimSpace(fileType) == "" {
 		fileType = "file"
 	}

@@ -13,53 +13,57 @@ func TestPlanIssueDoneAttachments(t *testing.T) {
 	exe := db.Attachment{Filename: "c.exe", ContentType: "application/octet-stream", SizeBytes: 5}
 	huge := db.Attachment{Filename: "d.pdf", ContentType: "application/pdf", SizeBytes: issueDoneMaxFileBytes + 1}
 
-	send, partial := planIssueDoneAttachments(nil)
-	if len(send) != 0 || partial {
-		t.Fatalf("empty: send=%d partial=%v", len(send), partial)
+	send, skipped, partial := planIssueDoneAttachments(nil)
+	if len(send) != 0 || len(skipped) != 0 || partial {
+		t.Fatalf("empty: send=%d skipped=%d partial=%v", len(send), len(skipped), partial)
 	}
 
-	send, partial = planIssueDoneAttachments([]db.Attachment{png, pdf})
-	if len(send) != 2 || partial {
-		t.Fatalf("image+doc: send=%d partial=%v", len(send), partial)
+	send, skipped, partial = planIssueDoneAttachments([]db.Attachment{png, pdf})
+	if len(send) != 2 || len(skipped) != 0 || partial {
+		t.Fatalf("image+doc: send=%d skipped=%d partial=%v", len(send), len(skipped), partial)
 	}
 
-	send, partial = planIssueDoneAttachments([]db.Attachment{png, exe})
-	if len(send) != 1 || !partial || send[0].Filename != "a.png" {
-		t.Fatalf("unsupported: send=%v partial=%v", send, partial)
+	send, skipped, partial = planIssueDoneAttachments([]db.Attachment{png, exe})
+	if len(send) != 1 || !partial || send[0].Filename != "a.png" || len(skipped) != 1 || skipped[0].Filename != "c.exe" {
+		t.Fatalf("unsupported: send=%v skipped=%v partial=%v", send, skipped, partial)
 	}
 
-	send, partial = planIssueDoneAttachments([]db.Attachment{huge, pdf})
+	send, skipped, partial = planIssueDoneAttachments([]db.Attachment{huge, pdf})
 	if len(send) != 1 || !partial || send[0].Filename != "b.pdf" {
-		t.Fatalf("oversize: send=%v partial=%v", send, partial)
+		t.Fatalf("oversize: send=%v skipped=%v partial=%v", send, skipped, partial)
 	}
 
 	var many []db.Attachment
 	for i := 0; i < 4; i++ {
 		many = append(many, db.Attachment{Filename: "x.png", ContentType: "image/png", SizeBytes: 1})
 	}
-	send, partial = planIssueDoneAttachments(many)
-	if len(send) != 3 || !partial {
-		t.Fatalf("cap: send=%d partial=%v", len(send), partial)
+	send, skipped, partial = planIssueDoneAttachments(many)
+	if len(send) != 3 || !partial || len(skipped) != 1 {
+		t.Fatalf("cap: send=%d skipped=%d partial=%v", len(send), len(skipped), partial)
 	}
 }
 
-func TestIssueDoneForwardable(t *testing.T) {
+func TestIssueDoneAttachmentKind(t *testing.T) {
 	cases := []struct {
 		name, ct, file string
-		want           bool
+		want           issueDoneKind
 	}{
-		{"png", "image/png", "a.png", true},
-		{"jpeg param", "image/jpeg; charset=binary", "a.jpg", true},
-		{"svg blocked", "image/svg+xml", "a.svg", false},
-		{"pdf", "application/pdf", "a.pdf", true},
-		{"docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "a.docx", true},
-		{"xlsx by ext", "application/octet-stream", "a.xlsx", true},
-		{"exe", "application/octet-stream", "a.exe", false},
-		{"empty", "", "", false},
+		{"png", "image/png", "a.png", issueDoneKindImage},
+		{"jpeg param", "image/jpeg; charset=binary", "a.jpg", issueDoneKindImage},
+		{"webp", "image/webp", "a.webp", issueDoneKindImage},
+		{"svg blocked", "image/svg+xml", "a.svg", issueDoneKindSkip},
+		{"pdf", "application/pdf", "a.pdf", issueDoneKindFile},
+		{"docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "a.docx", issueDoneKindFile},
+		{"xlsx by ext", "application/octet-stream", "a.xlsx", issueDoneKindFile},
+		{"pptx not in sampleFile list", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "a.pptx", issueDoneKindSkip},
+		{"xls not in sampleFile list", "application/vnd.ms-excel", "a.xls", issueDoneKindSkip},
+		{"txt", "text/plain", "a.txt", issueDoneKindSkip},
+		{"exe", "application/octet-stream", "a.exe", issueDoneKindSkip},
+		{"empty", "", "", issueDoneKindSkip},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := issueDoneForwardable(db.Attachment{ContentType: tc.ct, Filename: tc.file})
+			got := issueDoneAttachmentKind(db.Attachment{ContentType: tc.ct, Filename: tc.file})
 			if got != tc.want {
 				t.Fatalf("got %v want %v", got, tc.want)
 			}
@@ -67,15 +71,24 @@ func TestIssueDoneForwardable(t *testing.T) {
 	}
 }
 
-func TestIssueDoneFileType(t *testing.T) {
-	if got := issueDoneFileType("表格.xlsx", ""); got != "xlsx" {
-		t.Fatalf("ext = %q", got)
+func TestIssueDoneSampleFileType(t *testing.T) {
+	if got, ok := issueDoneSampleFileType("表格.xlsx", ""); !ok || got != "xlsx" {
+		t.Fatalf("xlsx = %q ok=%v", got, ok)
 	}
-	if got := issueDoneFileType("shot.jpeg", "image/jpeg"); got != "jpg" {
-		t.Fatalf("jpeg = %q", got)
+	if got, ok := issueDoneSampleFileType("noext", "application/pdf"); !ok || got != "pdf" {
+		t.Fatalf("pdf mime = %q ok=%v", got, ok)
 	}
-	if got := issueDoneFileType("noext", "application/pdf"); got != "pdf" {
-		t.Fatalf("mime = %q", got)
+	if _, ok := issueDoneSampleFileType("shot.png", "image/png"); ok {
+		t.Fatal("png must not use sampleFile")
+	}
+	if _, ok := issueDoneSampleFileType("deck.pptx", ""); ok {
+		t.Fatal("pptx is outside the official sampleFile list")
+	}
+}
+
+func TestIssueDoneImageMarkdown(t *testing.T) {
+	if got := issueDoneImageMarkdown("@media-1"); got != "![图片](@media-1)" {
+		t.Fatalf("got %q", got)
 	}
 }
 

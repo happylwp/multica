@@ -263,7 +263,15 @@ func (n *IssueDoneNotifier) latestAgentResult(ctx context.Context, issue issueDo
 			"error", err, "issue_id", issue.ID)
 		return out
 	}
-	out.files, out.partial = planIssueDoneAttachments(rows)
+	send, skipped, partial := planIssueDoneAttachments(rows)
+	out.files = send
+	out.partial = partial
+	for _, row := range skipped {
+		n.logger.WarnContext(ctx, "dingtalk issue-done notify: attachment not forwarded",
+			"filename", row.Filename,
+			"content_type", row.ContentType,
+			"size_bytes", row.SizeBytes)
+	}
 	return out
 }
 

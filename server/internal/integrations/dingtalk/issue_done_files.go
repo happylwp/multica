@@ -16,18 +16,31 @@ type issueDoneResult struct {
 	partial bool
 }
 
+type issueDoneKind int
+
+const (
+	issueDoneKindSkip issueDoneKind = iota
+	issueDoneKindImage
+	issueDoneKindFile
+)
+
 func appendIssueDonePartialNote(body string) string {
 	body = strings.TrimRight(body, "\n")
 	return body + "\n\n" + issueDonePartialNote
 }
 
-// planIssueDoneAttachments keeps images and common documents, drops oversize
-// files, and caps the send list at issueDoneMaxFiles. partial is true when
-// anything was skipped so the markdown can say so.
-func planIssueDoneAttachments(rows []db.Attachment) (send []db.Attachment, partial bool) {
+func issueDoneImageMarkdown(mediaID string) string {
+	return "![图片](" + mediaID + ")"
+}
+
+// planIssueDoneAttachments keeps images and official sampleFile documents,
+// drops oversize / unsupported files, and caps the send list. skipped rows
+// are returned so the caller can warn without blocking the text push.
+func planIssueDoneAttachments(rows []db.Attachment) (send, skipped []db.Attachment, partial bool) {
 	var eligible []db.Attachment
 	for _, row := range rows {
-		if !issueDoneForwardable(row) || row.SizeBytes > issueDoneMaxFileBytes {
+		if issueDoneAttachmentKind(row) == issueDoneKindSkip || row.SizeBytes > issueDoneMaxFileBytes {
+			skipped = append(skipped, row)
 			partial = true
 			continue
 		}
@@ -35,80 +48,63 @@ func planIssueDoneAttachments(rows []db.Attachment) (send []db.Attachment, parti
 	}
 	if len(eligible) > issueDoneMaxFiles {
 		partial = true
+		skipped = append(skipped, eligible[issueDoneMaxFiles:]...)
 		eligible = eligible[:issueDoneMaxFiles]
 	}
-	return eligible, partial
+	return eligible, skipped, partial
 }
 
-func issueDoneForwardable(row db.Attachment) bool {
-	ct := normalizeIssueDoneMediaType(row.ContentType)
-	if strings.HasPrefix(ct, "image/") && ct != "image/svg+xml" {
-		return true
+func issueDoneAttachmentKind(row db.Attachment) issueDoneKind {
+	if issueDoneIsImage(row) {
+		return issueDoneKindImage
 	}
-	switch ct {
-	case "application/pdf",
-		"application/msword",
-		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		"application/vnd.ms-excel",
-		"application/vnd.ms-excel.sheet.macroenabled.12",
-		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		"application/vnd.ms-powerpoint",
-		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
-		"application/zip",
-		"application/x-zip-compressed",
-		"application/x-rar-compressed",
-		"application/vnd.rar",
-		"application/x-7z-compressed",
-		"text/plain",
-		"text/markdown",
-		"text/csv":
+	if _, ok := issueDoneSampleFileType(row.Filename, row.ContentType); ok {
+		return issueDoneKindFile
+	}
+	return issueDoneKindSkip
+}
+
+func issueDoneIsImage(row db.Attachment) bool {
+	ct := normalizeIssueDoneMediaType(row.ContentType)
+	if ct == "image/svg+xml" {
+		return false
+	}
+	if strings.HasPrefix(ct, "image/") {
 		return true
 	}
 	switch issueDoneExt(row.Filename) {
-	case "png", "jpg", "jpeg", "gif", "webp", "bmp",
-		"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-		"zip", "rar", "7z", "txt", "md", "csv":
+	case "png", "jpg", "jpeg", "gif", "webp", "bmp":
 		return true
 	}
 	return false
 }
 
-func issueDoneExt(filename string) string {
-	return strings.ToLower(strings.TrimPrefix(path.Ext(filename), "."))
-}
-
-func issueDoneFileType(filename, contentType string) string {
-	ext := issueDoneExt(filename)
-	if ext == "jpeg" {
-		return "jpg"
-	}
-	if ext != "" {
-		return ext
+// issueDoneSampleFileType maps an attachment to DingTalk sampleFile's fileType.
+// Official template only accepts xlsx/pdf/zip/rar/doc/docx.
+func issueDoneSampleFileType(filename, contentType string) (string, bool) {
+	switch issueDoneExt(filename) {
+	case "xlsx", "pdf", "zip", "rar", "doc", "docx":
+		return issueDoneExt(filename), true
 	}
 	switch normalizeIssueDoneMediaType(contentType) {
-	case "image/png":
-		return "png"
-	case "image/jpeg":
-		return "jpg"
-	case "image/gif":
-		return "gif"
-	case "image/webp":
-		return "webp"
-	case "image/bmp":
-		return "bmp"
 	case "application/pdf":
-		return "pdf"
+		return "pdf", true
+	case "application/msword":
+		return "doc", true
+	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return "docx", true
+	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+		return "xlsx", true
 	case "application/zip", "application/x-zip-compressed":
-		return "zip"
-	case "text/plain":
-		return "txt"
-	case "text/csv":
-		return "csv"
-	case "text/markdown":
-		return "md"
-	default:
-		return "file"
+		return "zip", true
+	case "application/x-rar-compressed", "application/vnd.rar":
+		return "rar", true
 	}
+	return "", false
+}
+
+func issueDoneExt(filename string) string {
+	return strings.ToLower(strings.TrimPrefix(path.Ext(filename), "."))
 }
 
 func issueDoneFilename(filename string) string {
@@ -145,13 +141,33 @@ func (n *IssueDoneNotifier) forwardIssueDoneFiles(ctx context.Context, s *sender
 }
 
 func (n *IssueDoneNotifier) forwardOneIssueDoneFile(ctx context.Context, s *sender, target sendTarget, row db.Attachment) error {
+	kind := issueDoneAttachmentKind(row)
+	if kind == issueDoneKindSkip {
+		return fmt.Errorf("dingtalk: attachment format is not forwardable")
+	}
 	data, err := n.readIssueDoneFile(ctx, row)
 	if err != nil {
 		return err
 	}
 	filename := issueDoneFilename(row.Filename)
-	_, err = s.sendFile(ctx, target, filename, issueDoneFileType(filename, row.ContentType), data)
-	return err
+	mediaID, err := s.uploadMedia(ctx, filename, data)
+	if err != nil {
+		return err
+	}
+	switch kind {
+	case issueDoneKindImage:
+		_, err = s.send(ctx, target, issueDoneImageMarkdown(mediaID))
+		return err
+	case issueDoneKindFile:
+		fileType, ok := issueDoneSampleFileType(filename, row.ContentType)
+		if !ok {
+			return fmt.Errorf("dingtalk: attachment format is not forwardable")
+		}
+		_, err = s.sendSampleFile(ctx, target, filename, fileType, mediaID)
+		return err
+	default:
+		return fmt.Errorf("dingtalk: attachment format is not forwardable")
+	}
 }
 
 func (n *IssueDoneNotifier) readIssueDoneFile(ctx context.Context, row db.Attachment) ([]byte, error) {

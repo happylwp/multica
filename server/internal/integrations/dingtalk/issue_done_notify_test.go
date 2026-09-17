@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -692,7 +693,7 @@ func TestIssueDoneNotifierForwardsImageAndDocument(t *testing.T) {
 		t.Fatalf("processIssueUpdated: %v", err)
 	}
 	if d.sendCalls != 3 {
-		t.Fatalf("sends=%d, want markdown + 2 files", d.sendCalls)
+		t.Fatalf("sends=%d, want summary markdown + image markdown + sampleFile", d.sendCalls)
 	}
 	if d.uploadCalls != 2 {
 		t.Fatalf("uploads=%d, want 2", d.uploadCalls)
@@ -707,18 +708,22 @@ func TestIssueDoneNotifierForwardsImageAndDocument(t *testing.T) {
 	if strings.Contains(text, issueDonePartialNote) {
 		t.Fatalf("eligible files must not add partial note:\n%s", text)
 	}
-	got := []string{
-		decodeFileParam(t, d.sendBodies[1]).FileName,
-		decodeFileParam(t, d.sendBodies[2]).FileName,
+	if strings.Contains(text, "![图片]") {
+		t.Fatalf("image markdown must be a follow-up message, not the summary:\n%s", text)
 	}
-	if got[0] != "shot.png" || got[1] != "notes.pdf" {
-		t.Fatalf("file names = %v", got)
+	if d.sendBodies[1]["msgKey"] != msgKeyMarkdown {
+		t.Fatalf("image follow-up msgKey = %v, want markdown", d.sendBodies[1]["msgKey"])
 	}
-	if decodeFileParam(t, d.sendBodies[1]).FileType != "png" || decodeFileParam(t, d.sendBodies[2]).FileType != "pdf" {
-		t.Fatalf("file types = %s / %s", decodeFileParam(t, d.sendBodies[1]).FileType, decodeFileParam(t, d.sendBodies[2]).FileType)
+	imageText := decodeMsgParamText(t, d.sendBodies[1])
+	if imageText != "![图片](@media-1)" {
+		t.Fatalf("image markdown = %q", imageText)
 	}
-	if decodeFileParam(t, d.sendBodies[1]).MediaID != "@media-1" {
-		t.Fatalf("mediaId = %q", decodeFileParam(t, d.sendBodies[1]).MediaID)
+	if d.sendBodies[2]["msgKey"] != msgKeyFile {
+		t.Fatalf("document msgKey = %v, want sampleFile", d.sendBodies[2]["msgKey"])
+	}
+	doc := decodeFileParam(t, d.sendBodies[2])
+	if doc.FileName != "notes.pdf" || doc.FileType != "pdf" || doc.MediaID != "@media-1" {
+		t.Fatalf("document param = %+v", doc)
 	}
 }
 
@@ -755,7 +760,7 @@ func TestIssueDoneNotifierCapsAtThreeFiles(t *testing.T) {
 		t.Fatalf("processIssueUpdated: %v", err)
 	}
 	if d.sendCalls != 4 {
-		t.Fatalf("sends=%d, want markdown + 3 files", d.sendCalls)
+		t.Fatalf("sends=%d, want summary markdown + 3 image markdowns", d.sendCalls)
 	}
 	if d.uploadCalls != 3 {
 		t.Fatalf("uploads=%d, want 3", d.uploadCalls)
@@ -763,6 +768,14 @@ func TestIssueDoneNotifierCapsAtThreeFiles(t *testing.T) {
 	text := decodeMsgParamText(t, d.sendBodies[0])
 	if !strings.Contains(text, issueDonePartialNote) {
 		t.Fatalf("over-count must note partial forward:\n%s", text)
+	}
+	for i := 1; i <= 3; i++ {
+		if d.sendBodies[i]["msgKey"] != msgKeyMarkdown {
+			t.Fatalf("follow-up %d msgKey = %v, want markdown", i, d.sendBodies[i]["msgKey"])
+		}
+		if got := decodeMsgParamText(t, d.sendBodies[i]); got != "![图片](@media-1)" {
+			t.Fatalf("follow-up %d = %q", i, got)
+		}
 	}
 }
 
@@ -842,5 +855,34 @@ func TestIssueDoneNotifierReadFailureDoesNotFailNotify(t *testing.T) {
 	}
 	if d.sendCalls != 1 || d.uploadCalls != 0 {
 		t.Fatalf("sends=%d uploads=%d", d.sendCalls, d.uploadCalls)
+	}
+}
+
+func TestIssueDoneNotifierUnsupportedFormatWarnsAndSkips(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	q := issueDoneFileQueries(t, []db.Attachment{
+		testIssueDoneFile(41, "deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "ppt-key", 12),
+	})
+	var logs bytes.Buffer
+	n := testIssueDoneNotifierStore(t, q, d, &memIssueDoneStore{objects: map[string][]byte{"ppt-key": []byte("pptx-bytes")}})
+	n.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	if err := n.processIssueUpdated(context.Background(), events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
+	}); err != nil {
+		t.Fatalf("unsupported format must not fail notify: %v", err)
+	}
+	if d.sendCalls != 1 || d.uploadCalls != 0 {
+		t.Fatalf("unsupported must stay on summary text: sends=%d uploads=%d", d.sendCalls, d.uploadCalls)
+	}
+	if d.sendBodies[0]["msgKey"] != msgKeyMarkdown {
+		t.Fatalf("msgKey = %v", d.sendBodies[0]["msgKey"])
+	}
+	text := decodeMsgParamText(t, d.sendBodies[0])
+	if !strings.Contains(text, issueDonePartialNote) {
+		t.Fatalf("unsupported must note partial forward:\n%s", text)
+	}
+	if !strings.Contains(logs.String(), "attachment not forwarded") {
+		t.Fatalf("expected warn log, got %q", logs.String())
 	}
 }
