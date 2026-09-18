@@ -198,11 +198,19 @@ func (n *IssueDoneNotifier) notifyMember(ctx context.Context, wsID pgtype.UUID, 
 		return fmt.Errorf("decode dingtalk credentials: %w", err)
 	}
 	s := &sender{client: n.client, robotCode: creds.RobotCode, appKey: creds.AppKey, appSecret: creds.AppSecret}
-	if _, err := s.send(ctx, sendTarget{ConversationType: convTypeP2P, StaffID: binding.ChannelUserID}, body); err != nil {
+	target := sendTarget{ConversationType: convTypeP2P, StaffID: binding.ChannelUserID}
+	sendCtx := ctx
+	if len(files) > 0 {
+		var cancel context.CancelFunc
+		sendCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), issueDoneFileTimeout)
+		defer cancel()
+	}
+	if _, err := s.send(sendCtx, target, body); err != nil {
 		n.unclaim(key)
 		return fmt.Errorf("post dingtalk issue-done notify: %w", err)
 	}
-	n.forwardIssueDoneFiles(ctx, s, sendTarget{ConversationType: convTypeP2P, StaffID: binding.ChannelUserID}, files)
+	n.forwardIssueDoneImages(sendCtx, s, target, files)
+	n.forwardIssueDoneFiles(sendCtx, s, target, files)
 	return nil
 }
 

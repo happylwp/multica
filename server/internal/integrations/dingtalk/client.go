@@ -27,6 +27,9 @@ var errUnauthorized = errors.New("dingtalk: unauthorized (access token expired o
 // per-installation region split.
 const defaultAPIBase = "https://api.dingtalk.com"
 
+// defaultOAPIBase is the legacy DingTalk OAPI host used by media/upload.
+const defaultOAPIBase = "https://oapi.dingtalk.com"
+
 // accessTokenPath mints an enterprise-internal-app access_token from the app's
 // AppKey/AppSecret. The response carries the token and its lifetime in seconds.
 const accessTokenPath = "/v1.0/oauth2/accessToken"
@@ -65,29 +68,29 @@ func (e *apiRequestError) Error() string {
 // persist or log either value.
 const messageFilesDownloadPath = "/v1.0/robot/messageFiles/download"
 
-// messageFilesUploadPath uploads a robot media file and returns a mediaId for
-// sampleFile / sampleAudio messages. Verified against DingTalk OpenAPI usage:
-// multipart POST with robotCode + mediaType + file, not the 钉盘 two-step
-// uploadInfos flow (uploadKey/resourceUrl).
-const messageFilesUploadPath = "/v1.0/robot/messageFiles/upload"
+// oapiMediaUploadPath is the documented, live-tested media upload endpoint.
+// /v1.0/robot/messageFiles/upload does not exist (only download does).
+const oapiMediaUploadPath = "/media/upload"
+
+// oapi invalid-token errcodes. The legacy host returns HTTP 200 with these
+// instead of (or in addition to) HTTP 401.
+const (
+	oapiErrInvalidToken = 40014
+	oapiErrTokenExpired = 42001
+)
 
 // messageFileDownloadResponse is the success shape of messageFilesDownloadPath.
 type messageFileDownloadResponse struct {
 	DownloadUrl string `json:"downloadUrl"`
 }
 
-// messageFileUploadResponse is the success shape of messageFilesUploadPath.
-// Official robot upload returns camelCase mediaId; accept media_id as well.
-type messageFileUploadResponse struct {
-	MediaID    string `json:"mediaId"`
-	MediaIDAlt string `json:"media_id"`
-}
-
-func (r messageFileUploadResponse) id() string {
-	if r.MediaID != "" {
-		return r.MediaID
-	}
-	return r.MediaIDAlt
+// oapiMediaUploadResponse is the success/error shape of POST /media/upload.
+type oapiMediaUploadResponse struct {
+	ErrCode   int    `json:"errcode"`
+	ErrMsg    string `json:"errmsg"`
+	MediaID   string `json:"media_id"`
+	Type      string `json:"type"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 // fetchAccessToken mints an access_token for (appKey, appSecret). baseURL

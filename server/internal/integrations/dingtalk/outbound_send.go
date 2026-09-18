@@ -17,9 +17,10 @@ const (
 	// endpoints. Keep this aligned with DingTalk's endpoint contract instead of
 	// inferring a template migration from received interactive-card payloads.
 	msgKeyMarkdown = "sampleMarkdown"
-	// sampleFile is the documented file template. mediaId comes from
-	// POST /v1.0/robot/messageFiles/upload; local attachments cannot use
-	// sampleImageMsg because that template requires a public photoURL.
+	// sampleFile is the documented file template. mediaId comes from the
+	// legacy OAPI POST /media/upload (query access_token + type); local
+	// attachments cannot use sampleImageMsg because that template requires
+	// a public photoURL. Images embed the mediaId in sampleMarkdown instead.
 	msgKeyFile = "sampleFile"
 
 	// p2p (1:1) proactive send; group send.

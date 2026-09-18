@@ -19,9 +19,9 @@ type issueDoneResult struct {
 type issueDoneKind int
 
 const (
-	issueDoneKindSkip issueDoneKind = iota
-	issueDoneKindImage
+	issueDoneKindImage issueDoneKind = iota
 	issueDoneKindFile
+	issueDoneKindSkip
 )
 
 func appendIssueDonePartialNote(body string) string {
@@ -33,13 +33,43 @@ func issueDoneImageMarkdown(mediaID string) string {
 	return "![图片](" + mediaID + ")"
 }
 
-// planIssueDoneAttachments keeps images and official sampleFile documents,
-// drops oversize / unsupported files, and caps the send list. skipped rows
-// are returned so the caller can warn without blocking the text push.
+// forwardIssueDoneImages uploads image attachments (type=image) and sends
+// each mediaId as its own follow-up markdown message. Failures only warn:
+// the summary delivery has already succeeded by the time this runs.
+func (n *IssueDoneNotifier) forwardIssueDoneImages(ctx context.Context, s *sender, target sendTarget, files []db.Attachment) {
+	if n.store == nil {
+		return
+	}
+	for _, row := range files {
+		if issueDoneAttachmentKind(row) != issueDoneKindImage {
+			continue
+		}
+		mediaID, err := n.uploadIssueDoneAttachment(ctx, s, row, "image")
+		if err == nil {
+			_, err = s.send(ctx, target, issueDoneImageMarkdown(mediaID))
+		}
+		if err != nil {
+			n.logger.WarnContext(ctx, "dingtalk issue-done notify: attachment not forwarded",
+				"error", err,
+				"filename", row.Filename,
+				"content_type", row.ContentType,
+				"size_bytes", row.SizeBytes)
+		}
+	}
+}
+
+// planIssueDoneAttachments drops unsupported and oversize attachments and
+// caps the send list. Images (except svg) embed into the terminal markdown,
+// whitelisted documents go out as sampleFile, everything else is skipped.
 func planIssueDoneAttachments(rows []db.Attachment) (send, skipped []db.Attachment, partial bool) {
 	var eligible []db.Attachment
 	for _, row := range rows {
-		if issueDoneAttachmentKind(row) == issueDoneKindSkip || row.SizeBytes > issueDoneMaxFileBytes {
+		if issueDoneAttachmentKind(row) == issueDoneKindSkip {
+			skipped = append(skipped, row)
+			partial = true
+			continue
+		}
+		if row.SizeBytes > issueDoneMaxFileBytes {
 			skipped = append(skipped, row)
 			partial = true
 			continue
@@ -79,9 +109,17 @@ func issueDoneIsImage(row db.Attachment) bool {
 	return false
 }
 
-// issueDoneSampleFileType maps an attachment to DingTalk sampleFile's fileType.
-// Official template only accepts xlsx/pdf/zip/rar/doc/docx.
-func issueDoneSampleFileType(filename, contentType string) (string, bool) {
+func issueDoneUploadType(kind issueDoneKind) string {
+	if kind == issueDoneKindImage {
+		return "image"
+	}
+	return "file"
+}
+
+// issueDoneSampleFileType maps a supported attachment to sampleFile's
+// fileType. ok is false outside the officially documented fileType list
+// (xlsx/pdf/zip/rar/doc/docx) — those formats must not go out as sampleFile.
+func issueDoneSampleFileType(filename, contentType string) (fileType string, ok bool) {
 	switch issueDoneExt(filename) {
 	case "xlsx", "pdf", "zip", "rar", "doc", "docx":
 		return issueDoneExt(filename), true
@@ -127,11 +165,12 @@ func (n *IssueDoneNotifier) forwardIssueDoneFiles(ctx context.Context, s *sender
 	if n.store == nil || len(files) == 0 {
 		return
 	}
-	fileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), issueDoneFileTimeout)
-	defer cancel()
 	for _, row := range files {
-		if err := n.forwardOneIssueDoneFile(fileCtx, s, target, row); err != nil {
-			n.logger.WarnContext(fileCtx, "dingtalk issue-done notify: attachment not forwarded",
+		if issueDoneAttachmentKind(row) != issueDoneKindFile {
+			continue
+		}
+		if err := n.forwardOneIssueDoneFile(ctx, s, target, row); err != nil {
+			n.logger.WarnContext(ctx, "dingtalk issue-done notify: attachment not forwarded",
 				"error", err,
 				"filename", row.Filename,
 				"content_type", row.ContentType,
@@ -141,33 +180,25 @@ func (n *IssueDoneNotifier) forwardIssueDoneFiles(ctx context.Context, s *sender
 }
 
 func (n *IssueDoneNotifier) forwardOneIssueDoneFile(ctx context.Context, s *sender, target sendTarget, row db.Attachment) error {
-	kind := issueDoneAttachmentKind(row)
-	if kind == issueDoneKindSkip {
-		return fmt.Errorf("dingtalk: attachment format is not forwardable")
+	filename := issueDoneFilename(row.Filename)
+	fileType, ok := issueDoneSampleFileType(filename, row.ContentType)
+	if !ok {
+		return fmt.Errorf("dingtalk: fileType for %q is outside sampleFile's supported list", filename)
 	}
+	mediaID, err := n.uploadIssueDoneAttachment(ctx, s, row, "file")
+	if err != nil {
+		return err
+	}
+	_, err = s.sendSampleFile(ctx, target, filename, fileType, mediaID)
+	return err
+}
+
+func (n *IssueDoneNotifier) uploadIssueDoneAttachment(ctx context.Context, s *sender, row db.Attachment, mediaType string) (string, error) {
 	data, err := n.readIssueDoneFile(ctx, row)
 	if err != nil {
-		return err
+		return "", err
 	}
-	filename := issueDoneFilename(row.Filename)
-	mediaID, err := s.uploadMedia(ctx, filename, data)
-	if err != nil {
-		return err
-	}
-	switch kind {
-	case issueDoneKindImage:
-		_, err = s.send(ctx, target, issueDoneImageMarkdown(mediaID))
-		return err
-	case issueDoneKindFile:
-		fileType, ok := issueDoneSampleFileType(filename, row.ContentType)
-		if !ok {
-			return fmt.Errorf("dingtalk: attachment format is not forwardable")
-		}
-		_, err = s.sendSampleFile(ctx, target, filename, fileType, mediaID)
-		return err
-	default:
-		return fmt.Errorf("dingtalk: attachment format is not forwardable")
-	}
+	return s.uploadMedia(ctx, issueDoneFilename(row.Filename), mediaType, data)
 }
 
 func (n *IssueDoneNotifier) readIssueDoneFile(ctx context.Context, row db.Attachment) ([]byte, error) {

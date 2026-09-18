@@ -21,7 +21,7 @@ func (s *sender) sendFile(ctx context.Context, target sendTarget, filename, file
 	if len(data) == 0 {
 		return "", errors.New("dingtalk: empty file")
 	}
-	mediaID, err := s.uploadMedia(ctx, filename, data)
+	mediaID, err := s.uploadMedia(ctx, filename, "file", data)
 	if err != nil {
 		return "", err
 	}
@@ -43,13 +43,13 @@ func (s *sender) sendSampleFile(ctx context.Context, target sendTarget, filename
 	return s.sendOneKeyed(ctx, target, msgKeyFile, string(param))
 }
 
-func (s *sender) uploadMedia(ctx context.Context, filename string, data []byte) (string, error) {
+func (s *sender) uploadMedia(ctx context.Context, filename, mediaType string, data []byte) (string, error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		token, err := s.client.accessToken(ctx, s.appKey, s.appSecret)
 		if err != nil {
 			return "", fmt.Errorf("access token: %w", err)
 		}
-		mediaID, err := s.client.uploadRobotMedia(ctx, token, s.robotCode, filename, data)
+		mediaID, err := s.client.uploadRobotMedia(ctx, token, filename, mediaType, data)
 		if err == nil {
 			return mediaID, nil
 		}
