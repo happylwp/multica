@@ -35,6 +35,7 @@ type dingtalkSendServer struct {
 	lastUploadToken     string
 	lastUploadMediaType string
 	lastUploadBytes     []byte
+	uploadTypes         []string
 }
 
 func newDingtalkSendServer(t *testing.T) *dingtalkSendServer {
@@ -62,6 +63,7 @@ func newDingtalkSendServer(t *testing.T) *dingtalkSendServer {
 			}
 			_ = r.ParseMultipartForm(32 << 20)
 			d.lastUploadMediaType = r.URL.Query().Get("type")
+			d.uploadTypes = append(d.uploadTypes, d.lastUploadMediaType)
 			if file, hdr, err := r.FormFile("media"); err == nil {
 				d.lastUploadFilename = hdr.Filename
 				d.lastUploadBytes, _ = io.ReadAll(file)

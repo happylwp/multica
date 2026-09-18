@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"strings"
 	"testing"
 
@@ -692,11 +691,14 @@ func TestIssueDoneNotifierForwardsImageAndDocument(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("processIssueUpdated: %v", err)
 	}
-	if d.sendCalls != 3 {
-		t.Fatalf("sends=%d, want summary markdown + image markdown + sampleFile", d.sendCalls)
+	if d.sendCalls != 2 {
+		t.Fatalf("sends=%d, want one markdown (with embedded image) + sampleFile", d.sendCalls)
 	}
 	if d.uploadCalls != 2 {
 		t.Fatalf("uploads=%d, want 2", d.uploadCalls)
+	}
+	if got := strings.Join(d.uploadTypes, ","); got != "image,file" {
+		t.Fatalf("upload types = %q, want image then file", got)
 	}
 	if q.attachmentCalls != 1 {
 		t.Fatalf("attachment lookups=%d", q.attachmentCalls)
@@ -708,20 +710,13 @@ func TestIssueDoneNotifierForwardsImageAndDocument(t *testing.T) {
 	if strings.Contains(text, issueDonePartialNote) {
 		t.Fatalf("eligible files must not add partial note:\n%s", text)
 	}
-	if strings.Contains(text, "![图片]") {
-		t.Fatalf("image markdown must be a follow-up message, not the summary:\n%s", text)
+	if !strings.Contains(text, "见附件") || !strings.Contains(text, "![](@media-1)") {
+		t.Fatalf("image must embed in the same terminal markdown:\n%s", text)
 	}
-	if d.sendBodies[1]["msgKey"] != msgKeyMarkdown {
-		t.Fatalf("image follow-up msgKey = %v, want markdown", d.sendBodies[1]["msgKey"])
+	if d.sendBodies[1]["msgKey"] != msgKeyFile {
+		t.Fatalf("document msgKey = %v, want sampleFile", d.sendBodies[1]["msgKey"])
 	}
-	imageText := decodeMsgParamText(t, d.sendBodies[1])
-	if imageText != "![图片](@media-1)" {
-		t.Fatalf("image markdown = %q", imageText)
-	}
-	if d.sendBodies[2]["msgKey"] != msgKeyFile {
-		t.Fatalf("document msgKey = %v, want sampleFile", d.sendBodies[2]["msgKey"])
-	}
-	doc := decodeFileParam(t, d.sendBodies[2])
+	doc := decodeFileParam(t, d.sendBodies[1])
 	if doc.FileName != "notes.pdf" || doc.FileType != "pdf" || doc.MediaID != "@media-1" {
 		t.Fatalf("document param = %+v", doc)
 	}
@@ -759,8 +754,8 @@ func TestIssueDoneNotifierCapsAtThreeFiles(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("processIssueUpdated: %v", err)
 	}
-	if d.sendCalls != 4 {
-		t.Fatalf("sends=%d, want summary markdown + 3 image markdowns", d.sendCalls)
+	if d.sendCalls != 1 {
+		t.Fatalf("sends=%d, want one markdown with 3 embedded images", d.sendCalls)
 	}
 	if d.uploadCalls != 3 {
 		t.Fatalf("uploads=%d, want 3", d.uploadCalls)
@@ -769,13 +764,8 @@ func TestIssueDoneNotifierCapsAtThreeFiles(t *testing.T) {
 	if !strings.Contains(text, issueDonePartialNote) {
 		t.Fatalf("over-count must note partial forward:\n%s", text)
 	}
-	for i := 1; i <= 3; i++ {
-		if d.sendBodies[i]["msgKey"] != msgKeyMarkdown {
-			t.Fatalf("follow-up %d msgKey = %v, want markdown", i, d.sendBodies[i]["msgKey"])
-		}
-		if got := decodeMsgParamText(t, d.sendBodies[i]); got != "![图片](@media-1)" {
-			t.Fatalf("follow-up %d = %q", i, got)
-		}
+	if strings.Count(text, "![](@media-1)") != 3 {
+		t.Fatalf("want 3 embedded images in one message:\n%s", text)
 	}
 }
 
@@ -858,31 +848,34 @@ func TestIssueDoneNotifierReadFailureDoesNotFailNotify(t *testing.T) {
 	}
 }
 
-func TestIssueDoneNotifierUnsupportedFormatWarnsAndSkips(t *testing.T) {
+func TestIssueDoneNotifierOffListFormatSendsSampleFile(t *testing.T) {
 	d := newDingtalkSendServer(t)
+	data := []byte("pptx-bytes")
 	q := issueDoneFileQueries(t, []db.Attachment{
-		testIssueDoneFile(41, "deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "ppt-key", 12),
+		testIssueDoneFile(41, "deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "ppt-key", int64(len(data))),
 	})
-	var logs bytes.Buffer
-	n := testIssueDoneNotifierStore(t, q, d, &memIssueDoneStore{objects: map[string][]byte{"ppt-key": []byte("pptx-bytes")}})
-	n.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	n := testIssueDoneNotifierStore(t, q, d, &memIssueDoneStore{objects: map[string][]byte{"ppt-key": data}})
 	if err := n.processIssueUpdated(context.Background(), events.Event{
 		Type:    protocol.EventIssueUpdated,
 		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
 	}); err != nil {
-		t.Fatalf("unsupported format must not fail notify: %v", err)
+		t.Fatalf("off-list format must not fail notify: %v", err)
 	}
-	if d.sendCalls != 1 || d.uploadCalls != 0 {
-		t.Fatalf("unsupported must stay on summary text: sends=%d uploads=%d", d.sendCalls, d.uploadCalls)
+	if d.sendCalls != 2 || d.uploadCalls != 1 {
+		t.Fatalf("off-list must go sampleFile: sends=%d uploads=%d", d.sendCalls, d.uploadCalls)
 	}
-	if d.sendBodies[0]["msgKey"] != msgKeyMarkdown {
-		t.Fatalf("msgKey = %v", d.sendBodies[0]["msgKey"])
+	if d.lastUploadMediaType != "file" {
+		t.Fatalf("upload type = %q, want file", d.lastUploadMediaType)
+	}
+	if d.sendBodies[1]["msgKey"] != msgKeyFile {
+		t.Fatalf("msgKey = %v, want sampleFile", d.sendBodies[1]["msgKey"])
+	}
+	doc := decodeFileParam(t, d.sendBodies[1])
+	if doc.FileName != "deck.pptx" || doc.FileType != "pptx" {
+		t.Fatalf("document param = %+v", doc)
 	}
 	text := decodeMsgParamText(t, d.sendBodies[0])
-	if !strings.Contains(text, issueDonePartialNote) {
-		t.Fatalf("unsupported must note partial forward:\n%s", text)
-	}
-	if !strings.Contains(logs.String(), "attachment not forwarded") {
-		t.Fatalf("expected warn log, got %q", logs.String())
+	if strings.Contains(text, issueDonePartialNote) {
+		t.Fatalf("off-list sampleFile must not add partial note:\n%s", text)
 	}
 }

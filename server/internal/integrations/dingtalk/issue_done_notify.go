@@ -205,12 +205,12 @@ func (n *IssueDoneNotifier) notifyMember(ctx context.Context, wsID pgtype.UUID, 
 		sendCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), issueDoneFileTimeout)
 		defer cancel()
 	}
+	body, docs := n.prepareIssueDoneMarkdown(sendCtx, s, body, files)
 	if _, err := s.send(sendCtx, target, body); err != nil {
 		n.unclaim(key)
 		return fmt.Errorf("post dingtalk issue-done notify: %w", err)
 	}
-	n.forwardIssueDoneImages(sendCtx, s, target, files)
-	n.forwardIssueDoneFiles(sendCtx, s, target, files)
+	n.forwardIssueDoneFiles(sendCtx, s, target, docs)
 	return nil
 }
 
