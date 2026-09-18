@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -35,6 +37,8 @@ const (
 	issueDoneCommentWindow      = 32
 	issueDoneSummaryByteBudget  = 8000
 	issueDoneStatusChangesGroup = "status_changes"
+	issueDoneSeenTTL            = 24 * time.Hour
+	issueDoneSeenMaxSize        = 4096
 )
 
 // issueDoneQueries is the slice of generated queries this subscriber needs.
@@ -48,6 +52,15 @@ type issueDoneQueries interface {
 }
 
 var _ issueDoneQueries = (*db.Queries)(nil)
+
+type issueDoneRecipient struct {
+	memberID string
+	binding  db.ChannelUserBinding
+}
+
+type seenEntry struct {
+	at time.Time
+}
 
 // IssueDoneNotifier pushes a 1:1 DingTalk markdown message when an issue
 // reaches a done-category terminal status. Recipients are workspace members
@@ -66,7 +79,16 @@ type IssueDoneNotifier struct {
 	// bus of the replica that performed the write, so this covers replay of
 	// the same event (including two overlapping goroutines) without a new
 	// table. A later done after reopen has a new revision and notifies again.
-	seen sync.Map
+	// Entries expire after seenTTL and the map is capped at seenMax so a
+	// long-lived process cannot grow without bound. Cross-replica uniqueness
+	// would need a DB constraint; this bus is in-process, so TTL eviction is
+	// enough.
+	seen      sync.Map
+	seenSize  atomic.Int64
+	seenEvict sync.Mutex
+	seenTTL   time.Duration
+	seenMax   int
+	now       func() time.Time
 }
 
 // NewIssueDoneNotifier builds the subscriber. decrypt is the same AppSecret
@@ -84,6 +106,9 @@ func NewIssueDoneNotifier(q issueDoneQueries, decrypt Decrypter, client *Client,
 		client:  client,
 		logger:  logger,
 		spawn:   func(f func()) { go f() },
+		seenTTL: issueDoneSeenTTL,
+		seenMax: issueDoneSeenMaxSize,
+		now:     time.Now,
 	}
 }
 
@@ -94,12 +119,35 @@ func (n *IssueDoneNotifier) Register(bus *events.Bus) {
 }
 
 func (n *IssueDoneNotifier) handleIssueUpdated(e events.Event) {
+	issue, ok, statusChanged := parseIssueUpdated(e)
+	if !ok || !statusChanged {
+		return
+	}
+	wsID, err := util.ParseUUID(firstNonEmpty(issue.WorkspaceID, e.WorkspaceID))
+	if err != nil || !wsID.Valid {
+		return
+	}
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), issueDoneNotifyTimeout)
+	terminal := n.isDoneTerminal(checkCtx, wsID, issue.Status, issue.StatusCategory)
+	checkCancel()
+	if !terminal {
+		return
+	}
+
 	n.spawn(func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				n.logger.Error("dingtalk issue-done notify: panic",
+					"panic", rec,
+					"issue_id", issue.ID,
+					"workspace_id", e.WorkspaceID)
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), issueDoneNotifyTimeout)
 		defer cancel()
 		if err := n.processIssueUpdated(ctx, e); err != nil {
 			n.logger.WarnContext(ctx, "dingtalk issue-done notify: delivery failed",
-				"error", err, "workspace_id", e.WorkspaceID)
+				"error", err, "workspace_id", e.WorkspaceID, "issue_id", issue.ID)
 		}
 	})
 }
@@ -117,51 +165,74 @@ func (n *IssueDoneNotifier) processIssueUpdated(ctx context.Context, e events.Ev
 		return nil
 	}
 
+	recipients, err := n.eligibleRecipients(ctx, wsID, issue)
+	if err != nil {
+		return err
+	}
+	if len(recipients) == 0 {
+		return nil
+	}
+
 	summary := n.latestAgentComment(ctx, issue)
 	body := formatIssueDoneMarkdown(issue, summary)
 	if strings.TrimSpace(body) == "" {
 		return nil
 	}
 
-	var sendErr error
-	for _, memberID := range relatedMemberIDs(issue) {
-		if err := n.notifyMember(ctx, wsID, issue, memberID, body); err != nil {
-			sendErr = err
+	var sendErrs []error
+	for _, rec := range recipients {
+		if err := n.notifyMember(ctx, issue, rec, body); err != nil {
+			sendErrs = append(sendErrs, err)
 		}
 	}
-	return sendErr
+	if len(sendErrs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("issue_id=%s: %w", issue.ID, errors.Join(sendErrs...))
 }
 
-func (n *IssueDoneNotifier) notifyMember(ctx context.Context, wsID pgtype.UUID, issue issueDoneSnapshot, memberID, body string) error {
-	userID, err := util.ParseUUID(memberID)
-	if err != nil || !userID.Valid {
-		return nil
-	}
-	if n.statusChangesMuted(ctx, wsID, userID) {
-		return nil
-	}
-	binding, err := n.q.FindChannelBindingForMember(ctx, db.FindChannelBindingForMemberParams{
-		WorkspaceID:   wsID,
-		MulticaUserID: userID,
-		ChannelType:   string(TypeDingTalk),
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+func (n *IssueDoneNotifier) eligibleRecipients(ctx context.Context, wsID pgtype.UUID, issue issueDoneSnapshot) ([]issueDoneRecipient, error) {
+	var out []issueDoneRecipient
+	var errs []error
+	for _, memberID := range relatedMemberIDs(issue) {
+		userID, err := util.ParseUUID(memberID)
+		if err != nil || !userID.Valid {
+			continue
 		}
-		return fmt.Errorf("lookup dingtalk member binding: %w", err)
+		if n.statusChangesMuted(ctx, wsID, userID) {
+			continue
+		}
+		binding, err := n.q.FindChannelBindingForMember(ctx, db.FindChannelBindingForMemberParams{
+			WorkspaceID:   wsID,
+			MulticaUserID: userID,
+			ChannelType:   string(TypeDingTalk),
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("lookup dingtalk member binding: %w", err))
+			continue
+		}
+		if binding.ChannelUserID == "" {
+			continue
+		}
+		out = append(out, issueDoneRecipient{memberID: memberID, binding: binding})
 	}
-	if binding.ChannelUserID == "" {
-		return nil
+	if len(out) > 0 {
+		return out, nil
 	}
+	return nil, errors.Join(errs...)
+}
 
-	key := issueDoneDedupeKey(issue.ID, issue.Revision, issue.Status, memberID)
+func (n *IssueDoneNotifier) notifyMember(ctx context.Context, issue issueDoneSnapshot, rec issueDoneRecipient, body string) error {
+	key := issueDoneDedupeKey(issue.ID, issue.Revision, issue.Status, rec.memberID)
 	if !n.claim(key) {
 		return nil
 	}
 
 	inst, err := n.q.GetChannelInstallation(ctx, db.GetChannelInstallationParams{
-		ID: binding.InstallationID, ChannelType: string(TypeDingTalk),
+		ID: rec.binding.InstallationID, ChannelType: string(TypeDingTalk),
 	})
 	if err != nil {
 		n.unclaim(key)
@@ -180,7 +251,7 @@ func (n *IssueDoneNotifier) notifyMember(ctx context.Context, wsID pgtype.UUID, 
 		return fmt.Errorf("decode dingtalk credentials: %w", err)
 	}
 	s := &sender{client: n.client, robotCode: creds.RobotCode, appKey: creds.AppKey, appSecret: creds.AppSecret}
-	if _, err := s.send(ctx, sendTarget{ConversationType: convTypeP2P, StaffID: binding.ChannelUserID}, body); err != nil {
+	if _, err := s.send(ctx, sendTarget{ConversationType: convTypeP2P, StaffID: rec.binding.ChannelUserID}, body); err != nil {
 		n.unclaim(key)
 		return fmt.Errorf("post dingtalk issue-done notify: %w", err)
 	}
@@ -194,7 +265,7 @@ func (n *IssueDoneNotifier) isDoneTerminal(ctx context.Context, workspaceID pgty
 	if issuestatus.IsBuiltIn(status) {
 		return false
 	}
-	if statusCategory == issuestatus.Cancelled {
+	if statusCategory == issuestatus.Cancelled || statusCategory == issuestatus.CategoryClosed {
 		return false
 	}
 	entry, err := n.q.GetIssueStatusEntryByKey(ctx, db.GetIssueStatusEntryByKeyParams{
@@ -244,13 +315,104 @@ func (n *IssueDoneNotifier) statusChangesMuted(ctx context.Context, workspaceID,
 	return notificationGroupMuted(pref.Preferences, issueDoneStatusChangesGroup)
 }
 
+func (n *IssueDoneNotifier) clock() time.Time {
+	if n.now != nil {
+		return n.now()
+	}
+	return time.Now()
+}
+
 func (n *IssueDoneNotifier) claim(key string) bool {
-	_, loaded := n.seen.LoadOrStore(key, struct{}{})
-	return !loaded
+	now := n.clock()
+	ttl := n.seenTTL
+	if ttl <= 0 {
+		ttl = issueDoneSeenTTL
+	}
+	ent := seenEntry{at: now}
+	for {
+		actual, loaded := n.seen.LoadOrStore(key, ent)
+		if !loaded {
+			n.seenSize.Add(1)
+			n.evictIfNeeded(now)
+			return true
+		}
+		prev, _ := actual.(seenEntry)
+		if now.Sub(prev.at) < ttl {
+			return false
+		}
+		if n.seen.CompareAndSwap(key, actual, ent) {
+			n.evictIfNeeded(now)
+			return true
+		}
+	}
 }
 
 func (n *IssueDoneNotifier) unclaim(key string) {
-	n.seen.Delete(key)
+	if _, loaded := n.seen.LoadAndDelete(key); loaded {
+		n.seenSize.Add(-1)
+	}
+}
+
+func (n *IssueDoneNotifier) evictIfNeeded(now time.Time) {
+	max := n.seenMax
+	if max <= 0 {
+		max = issueDoneSeenMaxSize
+	}
+	if n.seenSize.Load() <= int64(max) {
+		return
+	}
+	if !n.seenEvict.TryLock() {
+		return
+	}
+	defer n.seenEvict.Unlock()
+	if n.seenSize.Load() <= int64(max) {
+		return
+	}
+
+	ttl := n.seenTTL
+	if ttl <= 0 {
+		ttl = issueDoneSeenTTL
+	}
+	n.seen.Range(func(k, v any) bool {
+		e, ok := v.(seenEntry)
+		if !ok || now.Sub(e.at) < ttl {
+			return true
+		}
+		if _, loaded := n.seen.LoadAndDelete(k); loaded {
+			n.seenSize.Add(-1)
+		}
+		return true
+	})
+	if n.seenSize.Load() <= int64(max) {
+		return
+	}
+
+	type kv struct {
+		k any
+		t time.Time
+	}
+	items := make([]kv, 0, max+1)
+	n.seen.Range(func(k, v any) bool {
+		e, ok := v.(seenEntry)
+		if !ok {
+			return true
+		}
+		items = append(items, kv{k: k, t: e.at})
+		return true
+	})
+	sort.Slice(items, func(i, j int) bool { return items[i].t.Before(items[j].t) })
+	overflow := int(n.seenSize.Load()) - max
+	if overflow <= 0 {
+		return
+	}
+	if overflow > len(items) {
+		overflow = len(items)
+	}
+	for i := 0; i < overflow; i++ {
+		if _, loaded := n.seen.LoadAndDelete(items[i].k); loaded {
+			n.seenSize.Add(-1)
+		}
+	}
 }
 
 // issueDoneSnapshot is the subset of the issue:updated payload this path reads.
@@ -294,7 +456,9 @@ func parseIssueUpdated(e events.Event) (issueDoneSnapshot, bool, bool) {
 }
 
 // relatedMemberIDs returns distinct member user ids in notify order: assignee
-// first, then creator. Agents and squads are not DingTalk-bindable recipients.
+// first, then creator. Both are included when they are members — this is not a
+// fallback / XOR: if both are bound, both are notified. Agents and squads are
+// skipped because they are not DingTalk-bindable recipients.
 func relatedMemberIDs(issue issueDoneSnapshot) []string {
 	ids := make([]string, 0, 2)
 	seen := make(map[string]bool, 2)
@@ -341,26 +505,26 @@ func formatIssueDoneMarkdown(issue issueDoneSnapshot, summary string) string {
 
 	var b strings.Builder
 	b.WriteString("# ")
-	b.WriteString(ident)
+	b.WriteString(escapeMarkdownText(ident))
 	b.WriteString(" ")
-	b.WriteString(statusLabel)
+	b.WriteString(escapeMarkdownText(statusLabel))
 	b.WriteString("\n\n")
 	if title := strings.TrimSpace(issue.Title); title != "" {
 		b.WriteString("**标题：** ")
-		b.WriteString(title)
+		b.WriteString(escapeMarkdownText(title))
 		b.WriteString("\n\n")
 	}
 	b.WriteString("**状态：** ")
 	switch {
 	case issue.StatusName != "" && issue.Status != "" && issue.StatusName != issue.Status:
-		b.WriteString(issue.StatusName)
+		b.WriteString(escapeMarkdownText(issue.StatusName))
 		b.WriteString(" (`")
 		b.WriteString(issue.Status)
 		b.WriteString("`)")
 	case issue.Status != "":
-		b.WriteString(issue.Status)
+		b.WriteString(escapeMarkdownText(issue.Status))
 	default:
-		b.WriteString(statusLabel)
+		b.WriteString(escapeMarkdownText(statusLabel))
 	}
 	if summary = strings.TrimSpace(summary); summary != "" {
 		b.WriteString("\n\n**结果摘要：**\n\n")
