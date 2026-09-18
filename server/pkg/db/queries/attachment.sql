@@ -35,6 +35,17 @@ SELECT * FROM attachment
 WHERE comment_id = $1 AND workspace_id = $2
 ORDER BY created_at ASC;
 
+-- name: ListAttachmentsByIssueAndComment :many
+-- Attachments bound to one comment on a specific issue. DingTalk issue-done
+-- notify uses this to forward the terminal agent comment's files; issue_id is
+-- a defense-in-depth owner guard so a comment id from another issue cannot
+-- leak files.
+SELECT * FROM attachment
+WHERE workspace_id = sqlc.arg(workspace_id)
+  AND issue_id = sqlc.arg(issue_id)
+  AND comment_id = sqlc.arg(comment_id)
+ORDER BY created_at ASC;
+
 -- name: GetAttachment :one
 SELECT * FROM attachment
 WHERE id = $1 AND workspace_id = $2;

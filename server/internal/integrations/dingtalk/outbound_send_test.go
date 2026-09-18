@@ -25,8 +25,17 @@ type dingtalkSendServer struct {
 	// failFirstSendAuth makes the first send return 401 so the token-refresh
 	// retry path is exercised.
 	failFirstSendAuth   bool
+	failFirstUploadAuth bool
+	failUpload          bool
+	failFileSend        bool
 	emotionSuccessFalse bool
 	sendCalls           int32
+	uploadCalls         int32
+	lastUploadFilename  string
+	lastUploadToken     string
+	lastUploadMediaType string
+	lastUploadBytes     []byte
+	uploadTypes         []string
 }
 
 func newDingtalkSendServer(t *testing.T) *dingtalkSendServer {
@@ -38,6 +47,29 @@ func newDingtalkSendServer(t *testing.T) *dingtalkSendServer {
 		case accessTokenPath:
 			atomic.AddInt32(&d.tokenCalls, 1)
 			_, _ = w.Write([]byte(`{"accessToken":"tok","expireIn":7200}`))
+		case oapiMediaUploadPath:
+			// Legacy OAPI contract: access_token and type ride the query
+			// string, the file is multipart field "media", and errors come
+			// back as HTTP 200 with an errcode body.
+			n := atomic.AddInt32(&d.uploadCalls, 1)
+			d.lastUploadToken = r.URL.Query().Get("access_token")
+			if d.failFirstUploadAuth && n == 1 {
+				_, _ = w.Write([]byte(`{"errcode":40014,"errmsg":"access token expired"}`))
+				return
+			}
+			if d.failUpload {
+				_, _ = w.Write([]byte(`{"errcode":60020,"errmsg":"no robot file permission"}`))
+				return
+			}
+			_ = r.ParseMultipartForm(32 << 20)
+			d.lastUploadMediaType = r.URL.Query().Get("type")
+			d.uploadTypes = append(d.uploadTypes, d.lastUploadMediaType)
+			if file, hdr, err := r.FormFile("media"); err == nil {
+				d.lastUploadFilename = hdr.Filename
+				d.lastUploadBytes, _ = io.ReadAll(file)
+				_ = file.Close()
+			}
+			_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok","media_id":"@media-1","created_at":1,"type":"file"}`))
 		case pathSendP2P, pathSendGroup, pathReplyEmotion, pathRecallEmotion:
 			n := atomic.AddInt32(&d.sendCalls, 1)
 			if d.failFirstSendAuth && n == 1 {
@@ -49,6 +81,13 @@ func newDingtalkSendServer(t *testing.T) *dingtalkSendServer {
 			d.lastPath = r.URL.Path
 			d.lastBody = map[string]any{}
 			_ = json.Unmarshal(body, &d.lastBody)
+			if d.failFileSend {
+				if key, _ := d.lastBody["msgKey"].(string); key == msgKeyFile {
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = w.Write([]byte(`{"code":"Forbidden.AccessDenied","message":"no robot file permission"}`))
+					return
+				}
+			}
 			d.sendBodies = append(d.sendBodies, d.lastBody)
 			if r.URL.Path == pathReplyEmotion || r.URL.Path == pathRecallEmotion {
 				if d.emotionSuccessFalse {
@@ -432,5 +471,64 @@ func TestSender_LongSingleLineAnswerBlockquotePreservesEveryChunk(t *testing.T) 
 	}
 	if joined.String() != source {
 		t.Fatal("answer blockquote content was lost or duplicated across chunks")
+	}
+}
+
+func TestSender_P2PSendFileUploadsThenSampleFile(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	s := newTestSender(NewClient(nil, d.srv.URL))
+	data := []byte("hello-file")
+	key, err := s.sendFile(context.Background(), sendTarget{ConversationType: convTypeP2P, StaffID: "staff-1"}, "表格.xlsx", "xlsx", data)
+	if err != nil {
+		t.Fatalf("sendFile: %v", err)
+	}
+	if key != "pqk-1" {
+		t.Fatalf("key = %q", key)
+	}
+	if d.uploadCalls != 1 {
+		t.Fatalf("uploads=%d", d.uploadCalls)
+	}
+	if d.lastUploadToken != "tok" || d.lastUploadMediaType != "file" {
+		t.Fatalf("upload query access_token=%q type=%q", d.lastUploadToken, d.lastUploadMediaType)
+	}
+	if d.lastUploadFilename != "表格.xlsx" || string(d.lastUploadBytes) != "hello-file" {
+		t.Fatalf("uploaded %q %q", d.lastUploadFilename, d.lastUploadBytes)
+	}
+	if d.lastPath != pathSendP2P {
+		t.Fatalf("path = %q", d.lastPath)
+	}
+	if d.lastBody["msgKey"] != msgKeyFile {
+		t.Fatalf("msgKey = %v, want sampleFile", d.lastBody["msgKey"])
+	}
+	raw, _ := d.lastBody["msgParam"].(string)
+	var param fileParam
+	if err := json.Unmarshal([]byte(raw), &param); err != nil {
+		t.Fatal(err)
+	}
+	if param.MediaID != "@media-1" || param.FileName != "表格.xlsx" || param.FileType != "xlsx" {
+		t.Fatalf("file param = %+v", param)
+	}
+}
+
+func TestSender_SendFileRefreshesTokenOnInvalidUploadToken(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	d.failFirstUploadAuth = true
+	s := newTestSender(NewClient(nil, d.srv.URL))
+	if _, err := s.sendFile(context.Background(), sendTarget{ConversationType: convTypeP2P, StaffID: "staff-1"}, "a.pdf", "pdf", []byte("x")); err != nil {
+		t.Fatalf("sendFile should succeed after upload token refresh: %v", err)
+	}
+	if got := atomic.LoadInt32(&d.uploadCalls); got != 2 {
+		t.Fatalf("upload calls = %d, want 2", got)
+	}
+	if got := atomic.LoadInt32(&d.tokenCalls); got != 2 {
+		t.Fatalf("token calls = %d, want 2", got)
+	}
+}
+
+func TestSender_SendFileWithoutStaffIDFails(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	s := newTestSender(NewClient(nil, d.srv.URL))
+	if _, err := s.sendFile(context.Background(), sendTarget{ConversationType: convTypeP2P}, "a.pdf", "pdf", []byte("x")); err == nil {
+		t.Fatal("1:1 file send without staff id must fail")
 	}
 }

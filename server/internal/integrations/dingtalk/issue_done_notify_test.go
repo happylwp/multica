@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -28,17 +31,21 @@ type fakeIssueDoneQueries struct {
 	installErr     error
 	comments       []db.Comment
 	commentsErr    error
+	attachments    []db.Attachment
+	attachmentsErr error
 	pref           db.NotificationPreference
 	prefErr        error
 	statusEntry    db.IssueStatus
 	statusEntryErr error
 
-	bindingCalls  int
-	installCalls  int
-	commentCalls  int
-	prefCalls     int
-	statusCalls   int
-	lastBindingID string
+	bindingCalls     int
+	installCalls     int
+	commentCalls     int
+	attachmentCalls  int
+	prefCalls        int
+	statusCalls      int
+	lastBindingID    string
+	lastAttachmentID pgtype.UUID
 }
 
 func (q *fakeIssueDoneQueries) FindChannelBindingForMember(_ context.Context, arg db.FindChannelBindingForMemberParams) (db.ChannelUserBinding, error) {
@@ -72,6 +79,15 @@ func (q *fakeIssueDoneQueries) ListCommentsForIssue(_ context.Context, _ db.List
 	return q.comments, nil
 }
 
+func (q *fakeIssueDoneQueries) ListAttachmentsByIssueAndComment(_ context.Context, arg db.ListAttachmentsByIssueAndCommentParams) ([]db.Attachment, error) {
+	q.attachmentCalls++
+	q.lastAttachmentID = arg.CommentID
+	if q.attachmentsErr != nil {
+		return nil, q.attachmentsErr
+	}
+	return q.attachments, nil
+}
+
 func (q *fakeIssueDoneQueries) GetNotificationPreference(_ context.Context, _ db.GetNotificationPreferenceParams) (db.NotificationPreference, error) {
 	q.prefCalls++
 	if q.prefErr != nil {
@@ -103,7 +119,12 @@ func testIssueDoneInstallationConfig(t *testing.T) []byte {
 
 func testIssueDoneNotifier(t *testing.T, q *fakeIssueDoneQueries, srv *dingtalkSendServer) *IssueDoneNotifier {
 	t.Helper()
-	n := NewIssueDoneNotifier(q, nil, NewClient(nil, srv.srv.URL), nil)
+	return testIssueDoneNotifierStore(t, q, srv, nil)
+}
+
+func testIssueDoneNotifierStore(t *testing.T, q *fakeIssueDoneQueries, srv *dingtalkSendServer, store issueDoneObjectStore) *IssueDoneNotifier {
+	t.Helper()
+	n := NewIssueDoneNotifier(q, nil, NewClient(nil, srv.srv.URL), store, nil)
 	n.spawn = func(f func()) { f() }
 	return n
 }
@@ -323,7 +344,7 @@ func TestIssueDoneNotifierReleasesClaimOnSendFailure(t *testing.T) {
 		},
 		prefErr: pgx.ErrNoRows,
 	}
-	n := NewIssueDoneNotifier(q, nil, NewClient(nil, "http://127.0.0.1:1"), nil)
+	n := NewIssueDoneNotifier(q, nil, NewClient(nil, "http://127.0.0.1:1"), nil, nil)
 	n.spawn = func(f func()) { f() }
 	event := events.Event{
 		Type:    protocol.EventIssueUpdated,
@@ -605,7 +626,7 @@ func TestIssueDoneNotifierSendFailureDoesNotPanicAndLogsViaReturn(t *testing.T) 
 		},
 		prefErr: pgx.ErrNoRows,
 	}
-	n := NewIssueDoneNotifier(q, nil, NewClient(nil, "http://127.0.0.1:1"), nil)
+	n := NewIssueDoneNotifier(q, nil, NewClient(nil, "http://127.0.0.1:1"), nil, nil)
 	n.spawn = func(f func()) { f() }
 	err := n.processIssueUpdated(context.Background(), events.Event{
 		Type:    protocol.EventIssueUpdated,
@@ -712,7 +733,7 @@ func (q *panicCommentsQueries) ListCommentsForIssue(_ context.Context, _ db.List
 func TestIssueDoneSeenExpiresAndEvictsOldest(t *testing.T) {
 	clock := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 
-	capped := NewIssueDoneNotifier(&fakeIssueDoneQueries{}, nil, NewClient(nil, ""), nil)
+	capped := NewIssueDoneNotifier(&fakeIssueDoneQueries{}, nil, NewClient(nil, ""), nil, nil)
 	capped.now = func() time.Time { return clock }
 	capped.seenTTL = 24 * time.Hour
 	capped.seenMax = 2
@@ -734,7 +755,7 @@ func TestIssueDoneSeenExpiresAndEvictsOldest(t *testing.T) {
 		t.Fatal("oldest key should be evicted and reclaimable")
 	}
 
-	expiring := NewIssueDoneNotifier(&fakeIssueDoneQueries{}, nil, NewClient(nil, ""), nil)
+	expiring := NewIssueDoneNotifier(&fakeIssueDoneQueries{}, nil, NewClient(nil, ""), nil, nil)
 	expiring.now = func() time.Time { return clock }
 	expiring.seenTTL = time.Hour
 	expiring.seenMax = 8
@@ -763,7 +784,7 @@ func TestIssueDoneNotifierMultiRecipientFailureIncludesIssueID(t *testing.T) {
 		},
 		prefErr: pgx.ErrNoRows,
 	}
-	n := NewIssueDoneNotifier(q, nil, NewClient(nil, "http://127.0.0.1:1"), nil)
+	n := NewIssueDoneNotifier(q, nil, NewClient(nil, "http://127.0.0.1:1"), nil, nil)
 	n.spawn = func(f func()) { f() }
 	issue := baseDoneIssue(t, assignee, creator)
 	var buf bytes.Buffer
@@ -776,5 +797,289 @@ func TestIssueDoneNotifierMultiRecipientFailureIncludesIssueID(t *testing.T) {
 	issueID := issue["id"].(string)
 	if !strings.Contains(log, "delivery failed") || !strings.Contains(log, issueID) {
 		t.Fatalf("multi-recipient failure must log issue_id, got %q", log)
+	}
+}
+
+type memIssueDoneStore struct {
+	objects map[string][]byte
+	err     error
+}
+
+func (m *memIssueDoneStore) KeyFromURL(raw string) string {
+	const prefix = "/uploads/"
+	if i := strings.Index(raw, prefix); i >= 0 {
+		return raw[i+len(prefix):]
+	}
+	return raw
+}
+
+func (m *memIssueDoneStore) GetReader(_ context.Context, key string) (io.ReadCloser, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	data, ok := m.objects[key]
+	if !ok {
+		return nil, fmt.Errorf("missing %s", key)
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+func testIssueDoneFile(id byte, name, contentType, key string, size int64) db.Attachment {
+	return db.Attachment{
+		ID:          sessionUUID(id),
+		Filename:    name,
+		ContentType: contentType,
+		Url:         "/uploads/" + key,
+		SizeBytes:   size,
+		CommentID:   sessionUUID(30),
+		WorkspaceID: sessionUUID(11),
+		IssueID:     sessionUUID(10),
+	}
+}
+
+func issueDoneFileQueries(t *testing.T, files []db.Attachment) *fakeIssueDoneQueries {
+	t.Helper()
+	return &fakeIssueDoneQueries{
+		binding: db.ChannelUserBinding{InstallationID: sessionUUID(20), ChannelUserID: "staff-1"},
+		installation: db.ChannelInstallation{
+			ID: sessionUUID(20), Status: "active", Config: testIssueDoneInstallationConfig(t),
+		},
+		prefErr: pgx.ErrNoRows,
+		comments: []db.Comment{{
+			ID:         sessionUUID(30),
+			AuthorType: "agent",
+			Content:    "见附件",
+		}},
+		attachments: files,
+	}
+}
+
+func decodeFileParam(t *testing.T, body map[string]any) fileParam {
+	t.Helper()
+	raw, ok := body["msgParam"].(string)
+	if !ok {
+		t.Fatalf("msgParam = %T", body["msgParam"])
+	}
+	var p fileParam
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		t.Fatalf("decode file msgParam: %v", err)
+	}
+	return p
+}
+
+func TestIssueDoneNotifierForwardsImageAndDocument(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	png := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 'x'}
+	pdf := []byte("%PDF-1.4 mock")
+	q := issueDoneFileQueries(t, []db.Attachment{
+		testIssueDoneFile(41, "shot.png", "image/png", "img-key", int64(len(png))),
+		testIssueDoneFile(42, "notes.pdf", "application/pdf", "pdf-key", int64(len(pdf))),
+	})
+	store := &memIssueDoneStore{objects: map[string][]byte{"img-key": png, "pdf-key": pdf}}
+	n := testIssueDoneNotifierStore(t, q, d, store)
+	if err := n.processIssueUpdated(context.Background(), events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
+	}); err != nil {
+		t.Fatalf("processIssueUpdated: %v", err)
+	}
+	if d.sendCalls != 3 {
+		t.Fatalf("sends=%d, want summary markdown + image markdown + sampleFile", d.sendCalls)
+	}
+	if d.uploadCalls != 2 {
+		t.Fatalf("uploads=%d, want 2", d.uploadCalls)
+	}
+	if got := strings.Join(d.uploadTypes, ","); got != "image,file" {
+		t.Fatalf("upload types = %q, want image then file", got)
+	}
+	if q.attachmentCalls != 1 {
+		t.Fatalf("attachment lookups=%d", q.attachmentCalls)
+	}
+	if d.sendBodies[0]["msgKey"] != msgKeyMarkdown {
+		t.Fatalf("first msgKey = %v, want markdown", d.sendBodies[0]["msgKey"])
+	}
+	text := decodeMsgParamText(t, d.sendBodies[0])
+	if strings.Contains(text, issueDonePartialNote) {
+		t.Fatalf("eligible files must not add partial note:\n%s", text)
+	}
+	if strings.Contains(text, "![图片]") || strings.Contains(text, "![](") {
+		t.Fatalf("image markdown must be a follow-up message, not the summary:\n%s", text)
+	}
+	if d.sendBodies[1]["msgKey"] != msgKeyMarkdown {
+		t.Fatalf("image follow-up msgKey = %v, want markdown", d.sendBodies[1]["msgKey"])
+	}
+	imageText := decodeMsgParamText(t, d.sendBodies[1])
+	if imageText != "![图片](@media-1)" {
+		t.Fatalf("image markdown = %q", imageText)
+	}
+	if d.sendBodies[2]["msgKey"] != msgKeyFile {
+		t.Fatalf("document msgKey = %v, want sampleFile", d.sendBodies[2]["msgKey"])
+	}
+	doc := decodeFileParam(t, d.sendBodies[2])
+	if doc.FileName != "notes.pdf" || doc.FileType != "pdf" || doc.MediaID != "@media-1" {
+		t.Fatalf("document param = %+v", doc)
+	}
+}
+
+func TestIssueDoneNotifierNoAttachmentsSkipsUpload(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	q := issueDoneFileQueries(t, nil)
+	n := testIssueDoneNotifierStore(t, q, d, &memIssueDoneStore{objects: map[string][]byte{}})
+	if err := n.processIssueUpdated(context.Background(), events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
+	}); err != nil {
+		t.Fatalf("processIssueUpdated: %v", err)
+	}
+	if d.sendCalls != 1 || d.uploadCalls != 0 {
+		t.Fatalf("sends=%d uploads=%d, want markdown only", d.sendCalls, d.uploadCalls)
+	}
+}
+
+func TestIssueDoneNotifierCapsAtThreeFiles(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	var files []db.Attachment
+	objects := map[string][]byte{}
+	for i := byte(1); i <= 4; i++ {
+		key := fmt.Sprintf("f-%d", i)
+		objects[key] = []byte{i}
+		files = append(files, testIssueDoneFile(40+i, fmt.Sprintf("a%d.png", i), "image/png", key, 1))
+	}
+	q := issueDoneFileQueries(t, files)
+	n := testIssueDoneNotifierStore(t, q, d, &memIssueDoneStore{objects: objects})
+	if err := n.processIssueUpdated(context.Background(), events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
+	}); err != nil {
+		t.Fatalf("processIssueUpdated: %v", err)
+	}
+	if d.sendCalls != 4 {
+		t.Fatalf("sends=%d, want summary markdown + 3 image markdowns", d.sendCalls)
+	}
+	if d.uploadCalls != 3 {
+		t.Fatalf("uploads=%d, want 3", d.uploadCalls)
+	}
+	text := decodeMsgParamText(t, d.sendBodies[0])
+	if !strings.Contains(text, issueDonePartialNote) {
+		t.Fatalf("over-count must note partial forward:\n%s", text)
+	}
+	if strings.Contains(text, "![图片]") || strings.Contains(text, "![](") {
+		t.Fatalf("summary must not embed images:\n%s", text)
+	}
+	for i := 1; i <= 3; i++ {
+		if d.sendBodies[i]["msgKey"] != msgKeyMarkdown {
+			t.Fatalf("follow-up %d msgKey = %v, want markdown", i, d.sendBodies[i]["msgKey"])
+		}
+		if got := decodeMsgParamText(t, d.sendBodies[i]); got != "![图片](@media-1)" {
+			t.Fatalf("follow-up %d = %q", i, got)
+		}
+	}
+}
+
+func TestIssueDoneNotifierSkipsOversizeFile(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	q := issueDoneFileQueries(t, []db.Attachment{
+		testIssueDoneFile(41, "huge.pdf", "application/pdf", "huge", issueDoneMaxFileBytes+1),
+	})
+	n := testIssueDoneNotifierStore(t, q, d, &memIssueDoneStore{objects: map[string][]byte{"huge": []byte("x")}})
+	if err := n.processIssueUpdated(context.Background(), events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
+	}); err != nil {
+		t.Fatalf("processIssueUpdated: %v", err)
+	}
+	if d.sendCalls != 1 || d.uploadCalls != 0 {
+		t.Fatalf("oversize must not upload: sends=%d uploads=%d", d.sendCalls, d.uploadCalls)
+	}
+	text := decodeMsgParamText(t, d.sendBodies[0])
+	if !strings.Contains(text, issueDonePartialNote) {
+		t.Fatalf("oversize must note partial forward:\n%s", text)
+	}
+}
+
+func TestIssueDoneNotifierFileFailureDoesNotFailNotify(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	d.failFileSend = true
+	data := []byte("hello pdf")
+	q := issueDoneFileQueries(t, []db.Attachment{
+		testIssueDoneFile(41, "notes.pdf", "application/pdf", "pdf-key", int64(len(data))),
+	})
+	n := testIssueDoneNotifierStore(t, q, d, &memIssueDoneStore{objects: map[string][]byte{"pdf-key": data}})
+	if err := n.processIssueUpdated(context.Background(), events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
+	}); err != nil {
+		t.Fatalf("file send failure must not fail notify: %v", err)
+	}
+	if d.sendBodies[0]["msgKey"] != msgKeyMarkdown {
+		t.Fatalf("markdown must still send, msgKey=%v", d.sendBodies[0]["msgKey"])
+	}
+	if d.uploadCalls != 1 {
+		t.Fatalf("uploads=%d, want 1", d.uploadCalls)
+	}
+}
+
+func TestIssueDoneNotifierUploadPermissionFailureDoesNotFailNotify(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	d.failUpload = true
+	data := []byte("hello pdf")
+	q := issueDoneFileQueries(t, []db.Attachment{
+		testIssueDoneFile(41, "notes.pdf", "application/pdf", "pdf-key", int64(len(data))),
+	})
+	n := testIssueDoneNotifierStore(t, q, d, &memIssueDoneStore{objects: map[string][]byte{"pdf-key": data}})
+	if err := n.processIssueUpdated(context.Background(), events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
+	}); err != nil {
+		t.Fatalf("upload permission failure must not fail notify: %v", err)
+	}
+	if d.sendCalls != 1 || d.uploadCalls != 1 {
+		t.Fatalf("sends=%d uploads=%d", d.sendCalls, d.uploadCalls)
+	}
+}
+
+func TestIssueDoneNotifierReadFailureDoesNotFailNotify(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	q := issueDoneFileQueries(t, []db.Attachment{
+		testIssueDoneFile(41, "notes.pdf", "application/pdf", "pdf-key", 4),
+	})
+	n := testIssueDoneNotifierStore(t, q, d, &memIssueDoneStore{err: errors.New("disk missing")})
+	if err := n.processIssueUpdated(context.Background(), events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
+	}); err != nil {
+		t.Fatalf("read failure must not fail notify: %v", err)
+	}
+	if d.sendCalls != 1 || d.uploadCalls != 0 {
+		t.Fatalf("sends=%d uploads=%d", d.sendCalls, d.uploadCalls)
+	}
+}
+
+func TestIssueDoneNotifierUnsupportedFormatWarnsAndSkips(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	q := issueDoneFileQueries(t, []db.Attachment{
+		testIssueDoneFile(41, "deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "ppt-key", 12),
+	})
+	var logs bytes.Buffer
+	n := testIssueDoneNotifierStore(t, q, d, &memIssueDoneStore{objects: map[string][]byte{"ppt-key": []byte("pptx-bytes")}})
+	n.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	if err := n.processIssueUpdated(context.Background(), events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
+	}); err != nil {
+		t.Fatalf("unsupported format must not fail notify: %v", err)
+	}
+	if d.sendCalls != 1 || d.uploadCalls != 0 {
+		t.Fatalf("unsupported must stay on summary text: sends=%d uploads=%d", d.sendCalls, d.uploadCalls)
+	}
+	if d.sendBodies[0]["msgKey"] != msgKeyMarkdown {
+		t.Fatalf("msgKey = %v", d.sendBodies[0]["msgKey"])
+	}
+	text := decodeMsgParamText(t, d.sendBodies[0])
+	if !strings.Contains(text, issueDonePartialNote) {
+		t.Fatalf("unsupported must note partial forward:\n%s", text)
+	}
+	if !strings.Contains(logs.String(), "attachment not forwarded") {
+		t.Fatalf("expected warn log, got %q", logs.String())
 	}
 }

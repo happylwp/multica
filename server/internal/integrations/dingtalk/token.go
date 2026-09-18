@@ -7,7 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/url"
+	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -155,6 +159,100 @@ func (c *Client) messageFileDownloadURL(ctx context.Context, appKey, appSecret, 
 		return "", fmt.Errorf("dingtalk: messageFiles/download returned empty downloadUrl")
 	}
 	return out.DownloadUrl, nil
+}
+
+func (c *Client) oapiBase() string {
+	if c.apiBase != "" && c.apiBase != defaultAPIBase {
+		return c.apiBase
+	}
+	return defaultOAPIBase
+}
+
+func oapiUnauthorized(errCode int) bool {
+	return errCode == oapiErrInvalidToken || errCode == oapiErrTokenExpired
+}
+
+// uploadRobotMedia POSTs the file to the live-tested OAPI media/upload
+// endpoint (multipart field "media", access_token in the query string).
+func (c *Client) uploadRobotMedia(ctx context.Context, accessToken, filename, mediaType string, data []byte) (string, error) {
+	filename = path.Base(strings.TrimSpace(filename))
+	if filename == "" || filename == "." {
+		filename = "attachment"
+	}
+	if mediaType != "image" {
+		mediaType = "file"
+	}
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("media", filename)
+	if err != nil {
+		return "", fmt.Errorf("dingtalk: create media part: %w", err)
+	}
+	if _, err := part.Write(data); err != nil {
+		return "", fmt.Errorf("dingtalk: write media part: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return "", fmt.Errorf("dingtalk: close multipart: %w", err)
+	}
+
+	u, err := url.Parse(c.oapiBase() + oapiMediaUploadPath)
+	if err != nil {
+		return "", fmt.Errorf("dingtalk: parse media upload url: %w", err)
+	}
+	q := u.Query()
+	q.Set("access_token", accessToken)
+	q.Set("type", mediaType)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), &buf)
+	if err != nil {
+		return "", fmt.Errorf("dingtalk: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("dingtalk: request %s: %w", oapiMediaUploadPath, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", errUnauthorized
+	}
+
+	var out oapiMediaUploadResponse
+	_ = json.Unmarshal(respBody, &out)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		code := out.ErrMsg
+		if out.ErrCode != 0 {
+			code = strconv.Itoa(out.ErrCode)
+		}
+		if oapiUnauthorized(out.ErrCode) {
+			return "", errUnauthorized
+		}
+		return "", &apiRequestError{
+			Path:       oapiMediaUploadPath,
+			StatusCode: resp.StatusCode,
+			Code:       code,
+			Message:    firstNonEmpty(out.ErrMsg, fmt.Sprintf("http %d", resp.StatusCode)),
+		}
+	}
+	if out.ErrCode != 0 {
+		if oapiUnauthorized(out.ErrCode) {
+			return "", errUnauthorized
+		}
+		return "", &apiRequestError{
+			Path:       oapiMediaUploadPath,
+			StatusCode: resp.StatusCode,
+			Code:       strconv.Itoa(out.ErrCode),
+			Message:    out.ErrMsg,
+		}
+	}
+	if out.MediaID != "" {
+		return out.MediaID, nil
+	}
+	return "", fmt.Errorf("dingtalk: media/upload returned empty media_id")
 }
 
 // postJSON posts body to path with the access token header and decodes a 2xx

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sort"
 	"strings"
@@ -34,11 +35,15 @@ import (
 
 const (
 	issueDoneNotifyTimeout      = 10 * time.Second
+	issueDoneFileTimeout        = 60 * time.Second
 	issueDoneCommentWindow      = 32
 	issueDoneSummaryByteBudget  = 8000
 	issueDoneStatusChangesGroup = "status_changes"
 	issueDoneSeenTTL            = 24 * time.Hour
 	issueDoneSeenMaxSize        = 4096
+	issueDoneMaxFileBytes       = 10 << 20
+	issueDoneMaxFiles           = 3
+	issueDonePartialNote        = "部分附件未转发"
 )
 
 // issueDoneQueries is the slice of generated queries this subscriber needs.
@@ -47,8 +52,15 @@ type issueDoneQueries interface {
 	FindChannelBindingForMember(ctx context.Context, arg db.FindChannelBindingForMemberParams) (db.ChannelUserBinding, error)
 	GetChannelInstallation(ctx context.Context, arg db.GetChannelInstallationParams) (db.ChannelInstallation, error)
 	ListCommentsForIssue(ctx context.Context, arg db.ListCommentsForIssueParams) ([]db.Comment, error)
+	ListAttachmentsByIssueAndComment(ctx context.Context, arg db.ListAttachmentsByIssueAndCommentParams) ([]db.Attachment, error)
 	GetNotificationPreference(ctx context.Context, arg db.GetNotificationPreferenceParams) (db.NotificationPreference, error)
 	GetIssueStatusEntryByKey(ctx context.Context, arg db.GetIssueStatusEntryByKeyParams) (db.IssueStatus, error)
+}
+
+// issueDoneObjectStore is the slice of storage.Storage this path needs.
+type issueDoneObjectStore interface {
+	KeyFromURL(rawURL string) string
+	GetReader(ctx context.Context, key string) (io.ReadCloser, error)
 }
 
 var _ issueDoneQueries = (*db.Queries)(nil)
@@ -71,6 +83,7 @@ type IssueDoneNotifier struct {
 	q       issueDoneQueries
 	decrypt Decrypter
 	client  *Client
+	store   issueDoneObjectStore
 	logger  *slog.Logger
 	// spawn runs the delivery. A field rather than a bare `go` so tests can
 	// run it inline and observe the result deterministically.
@@ -95,7 +108,8 @@ type IssueDoneNotifier struct {
 
 // NewIssueDoneNotifier builds the subscriber. decrypt is the same AppSecret
 // opener the chat outbound path uses; a nil Client constructs a default.
-func NewIssueDoneNotifier(q issueDoneQueries, decrypt Decrypter, client *Client, logger *slog.Logger) *IssueDoneNotifier {
+// store may be nil: markdown still sends, attachments are skipped.
+func NewIssueDoneNotifier(q issueDoneQueries, decrypt Decrypter, client *Client, store issueDoneObjectStore, logger *slog.Logger) *IssueDoneNotifier {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -106,6 +120,7 @@ func NewIssueDoneNotifier(q issueDoneQueries, decrypt Decrypter, client *Client,
 		q:       q,
 		decrypt: decrypt,
 		client:  client,
+		store:   store,
 		logger:  logger,
 		spawn:   func(f func()) { go f() },
 		seenTTL: issueDoneSeenTTL,
@@ -175,15 +190,18 @@ func (n *IssueDoneNotifier) processIssueUpdated(ctx context.Context, e events.Ev
 		return nil
 	}
 
-	summary := n.latestAgentComment(ctx, issue)
-	body := formatIssueDoneMarkdown(issue, summary)
+	result := n.latestAgentResult(ctx, issue)
+	body := formatIssueDoneMarkdown(issue, result.summary)
+	if result.partial {
+		body = appendIssueDonePartialNote(body)
+	}
 	if strings.TrimSpace(body) == "" {
 		return nil
 	}
 
 	var sendErrs []error
 	for _, rec := range recipients {
-		if err := n.notifyMember(ctx, issue, rec, body); err != nil {
+		if err := n.notifyMember(ctx, issue, rec, body, result.files); err != nil {
 			sendErrs = append(sendErrs, err)
 		}
 	}
@@ -227,7 +245,7 @@ func (n *IssueDoneNotifier) eligibleRecipients(ctx context.Context, wsID pgtype.
 	return nil, errors.Join(errs...)
 }
 
-func (n *IssueDoneNotifier) notifyMember(ctx context.Context, issue issueDoneSnapshot, rec issueDoneRecipient, body string) error {
+func (n *IssueDoneNotifier) notifyMember(ctx context.Context, issue issueDoneSnapshot, rec issueDoneRecipient, body string, files []db.Attachment) error {
 	key := issueDoneDedupeKey(issue.ID, issue.Revision, issue.Status, rec.memberID)
 	if !n.claim(key) {
 		return nil
@@ -253,9 +271,16 @@ func (n *IssueDoneNotifier) notifyMember(ctx context.Context, issue issueDoneSna
 		return fmt.Errorf("decode dingtalk credentials: %w", err)
 	}
 	s := &sender{client: n.client, robotCode: creds.RobotCode, appKey: creds.AppKey, appSecret: creds.AppSecret}
-	if _, err := s.send(ctx, sendTarget{ConversationType: convTypeP2P, StaffID: rec.binding.ChannelUserID}, body); err != nil {
+	target := sendTarget{ConversationType: convTypeP2P, StaffID: rec.binding.ChannelUserID}
+	if _, err := s.send(ctx, target, body); err != nil {
 		n.unclaim(key)
 		return fmt.Errorf("post dingtalk issue-done notify: %w", err)
+	}
+	if len(files) > 0 {
+		fileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), issueDoneFileTimeout)
+		defer cancel()
+		n.forwardIssueDoneImages(fileCtx, s, target, files)
+		n.forwardIssueDoneFiles(fileCtx, s, target, files)
 	}
 	return nil
 }
@@ -280,14 +305,14 @@ func (n *IssueDoneNotifier) isDoneTerminal(ctx context.Context, workspaceID pgty
 	return entry.Category == issuestatus.CategoryDone
 }
 
-func (n *IssueDoneNotifier) latestAgentComment(ctx context.Context, issue issueDoneSnapshot) string {
+func (n *IssueDoneNotifier) latestAgentResult(ctx context.Context, issue issueDoneSnapshot) issueDoneResult {
 	issueID, err := util.ParseUUID(issue.ID)
 	if err != nil || !issueID.Valid {
-		return ""
+		return issueDoneResult{}
 	}
 	wsID, err := util.ParseUUID(issue.WorkspaceID)
 	if err != nil || !wsID.Valid {
-		return ""
+		return issueDoneResult{}
 	}
 	comments, err := n.q.ListCommentsForIssue(ctx, db.ListCommentsForIssueParams{
 		IssueID:     issueID,
@@ -297,9 +322,36 @@ func (n *IssueDoneNotifier) latestAgentComment(ctx context.Context, issue issueD
 	if err != nil {
 		n.logger.WarnContext(ctx, "dingtalk issue-done notify: comments unavailable",
 			"error", err, "issue_id", issue.ID)
-		return ""
+		return issueDoneResult{}
 	}
-	return latestAgentCommentContent(comments)
+	comment, ok := latestAgentComment(comments)
+	if !ok {
+		return issueDoneResult{}
+	}
+	out := issueDoneResult{summary: strings.TrimSpace(comment.Content)}
+	if n.store == nil || !comment.ID.Valid {
+		return out
+	}
+	rows, err := n.q.ListAttachmentsByIssueAndComment(ctx, db.ListAttachmentsByIssueAndCommentParams{
+		WorkspaceID: wsID,
+		IssueID:     issueID,
+		CommentID:   comment.ID,
+	})
+	if err != nil {
+		n.logger.WarnContext(ctx, "dingtalk issue-done notify: attachments unavailable",
+			"error", err, "issue_id", issue.ID)
+		return out
+	}
+	send, skipped, partial := planIssueDoneAttachments(rows)
+	out.files = send
+	out.partial = partial
+	for _, row := range skipped {
+		n.logger.WarnContext(ctx, "dingtalk issue-done notify: attachment not forwarded",
+			"filename", row.Filename,
+			"content_type", row.ContentType,
+			"size_bytes", row.SizeBytes)
+	}
+	return out
 }
 
 func (n *IssueDoneNotifier) statusChangesMuted(ctx context.Context, workspaceID, userID pgtype.UUID) bool {
@@ -481,17 +533,23 @@ func relatedMemberIDs(issue issueDoneSnapshot) []string {
 	return ids
 }
 
-func latestAgentCommentContent(comments []db.Comment) string {
+func latestAgentComment(comments []db.Comment) (db.Comment, bool) {
 	for i := len(comments) - 1; i >= 0; i-- {
 		c := comments[i]
 		if c.DeletedAt.Valid || c.AuthorType != "agent" {
 			continue
 		}
-		if text := strings.TrimSpace(c.Content); text != "" {
-			return text
-		}
+		return c, true
 	}
-	return ""
+	return db.Comment{}, false
+}
+
+func latestAgentCommentContent(comments []db.Comment) string {
+	c, ok := latestAgentComment(comments)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(c.Content)
 }
 
 func formatIssueDoneMarkdown(issue issueDoneSnapshot, summary string) string {
