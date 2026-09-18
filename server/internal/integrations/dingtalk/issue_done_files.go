@@ -21,6 +21,7 @@ type issueDoneKind int
 const (
 	issueDoneKindImage issueDoneKind = iota
 	issueDoneKindFile
+	issueDoneKindSkip
 )
 
 func appendIssueDonePartialNote(body string) string {
@@ -29,29 +30,45 @@ func appendIssueDonePartialNote(body string) string {
 }
 
 func issueDoneImageMarkdown(mediaID string) string {
-	return "![](" + mediaID + ")"
+	return "![图片](" + mediaID + ")"
 }
 
-func appendIssueDoneImageMarkdown(body string, mediaIDs []string) string {
-	if len(mediaIDs) == 0 {
-		return body
+// forwardIssueDoneImages uploads image attachments (type=image) and sends
+// each mediaId as its own follow-up markdown message. Failures only warn:
+// the summary delivery has already succeeded by the time this runs.
+func (n *IssueDoneNotifier) forwardIssueDoneImages(ctx context.Context, s *sender, target sendTarget, files []db.Attachment) {
+	if n.store == nil {
+		return
 	}
-	var b strings.Builder
-	b.WriteString(strings.TrimRight(body, "\n"))
-	for _, id := range mediaIDs {
-		b.WriteString("\n\n")
-		b.WriteString(issueDoneImageMarkdown(id))
+	for _, row := range files {
+		if issueDoneAttachmentKind(row) != issueDoneKindImage {
+			continue
+		}
+		mediaID, err := n.uploadIssueDoneAttachment(ctx, s, row, issueDoneUploadType(issueDoneKindImage))
+		if err == nil {
+			_, err = s.send(ctx, target, issueDoneImageMarkdown(mediaID))
+		}
+		if err != nil {
+			n.logger.WarnContext(ctx, "dingtalk issue-done notify: attachment not forwarded",
+				"error", err,
+				"filename", row.Filename,
+				"content_type", row.ContentType,
+				"size_bytes", row.SizeBytes)
+		}
 	}
-	return b.String()
 }
 
-// planIssueDoneAttachments drops oversize files and caps the send list.
-// Images (except svg) embed into the same terminal markdown; every other
-// format — official sampleFile types and off-list formats — goes out as
-// sampleFile.
+// planIssueDoneAttachments drops unsupported and oversize attachments and
+// caps the send list. Images (except svg) go out as follow-up markdown,
+// whitelisted documents go out as sampleFile, everything else is skipped.
 func planIssueDoneAttachments(rows []db.Attachment) (send, skipped []db.Attachment, partial bool) {
 	var eligible []db.Attachment
 	for _, row := range rows {
+		if issueDoneAttachmentKind(row) == issueDoneKindSkip {
+			skipped = append(skipped, row)
+			partial = true
+			continue
+		}
 		if row.SizeBytes > issueDoneMaxFileBytes {
 			skipped = append(skipped, row)
 			partial = true
@@ -71,7 +88,10 @@ func issueDoneAttachmentKind(row db.Attachment) issueDoneKind {
 	if issueDoneIsImage(row) {
 		return issueDoneKindImage
 	}
-	return issueDoneKindFile
+	if _, ok := issueDoneSampleFileType(row.Filename, row.ContentType); ok {
+		return issueDoneKindFile
+	}
+	return issueDoneKindSkip
 }
 
 func issueDoneIsImage(row db.Attachment) bool {
@@ -96,32 +116,29 @@ func issueDoneUploadType(kind issueDoneKind) string {
 	return "file"
 }
 
-// issueDoneSampleFileType maps an attachment to sampleFile's fileType.
-// Official docs list xlsx/pdf/zip/rar/doc/docx; off-list formats still
-// send as sampleFile using the extension (or "file").
-func issueDoneSampleFileType(filename, contentType string) string {
+// issueDoneSampleFileType maps a supported attachment to sampleFile's
+// fileType. ok is false outside the officially documented fileType list
+// (xlsx/pdf/zip/rar/doc/docx) — those formats must not go out as sampleFile.
+func issueDoneSampleFileType(filename, contentType string) (fileType string, ok bool) {
 	switch issueDoneExt(filename) {
 	case "xlsx", "pdf", "zip", "rar", "doc", "docx":
-		return issueDoneExt(filename)
+		return issueDoneExt(filename), true
 	}
 	switch normalizeIssueDoneMediaType(contentType) {
 	case "application/pdf":
-		return "pdf"
+		return "pdf", true
 	case "application/msword":
-		return "doc"
+		return "doc", true
 	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-		return "docx"
+		return "docx", true
 	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-		return "xlsx"
+		return "xlsx", true
 	case "application/zip", "application/x-zip-compressed":
-		return "zip"
+		return "zip", true
 	case "application/x-rar-compressed", "application/vnd.rar":
-		return "rar"
+		return "rar", true
 	}
-	if ext := issueDoneExt(filename); ext != "" {
-		return ext
-	}
-	return "file"
+	return "", false
 }
 
 func issueDoneExt(filename string) string {
@@ -144,36 +161,14 @@ func normalizeIssueDoneMediaType(contentType string) string {
 	return ct
 }
 
-func (n *IssueDoneNotifier) prepareIssueDoneMarkdown(ctx context.Context, s *sender, body string, files []db.Attachment) (string, []db.Attachment) {
-	if n.store == nil || len(files) == 0 {
-		return body, nil
-	}
-	var docs []db.Attachment
-	var mediaIDs []string
-	for _, row := range files {
-		if issueDoneAttachmentKind(row) != issueDoneKindImage {
-			docs = append(docs, row)
-			continue
-		}
-		mediaID, err := n.uploadIssueDoneAttachment(ctx, s, row, issueDoneUploadType(issueDoneKindImage))
-		if err != nil {
-			n.logger.WarnContext(ctx, "dingtalk issue-done notify: attachment not forwarded",
-				"error", err,
-				"filename", row.Filename,
-				"content_type", row.ContentType,
-				"size_bytes", row.SizeBytes)
-			continue
-		}
-		mediaIDs = append(mediaIDs, mediaID)
-	}
-	return appendIssueDoneImageMarkdown(body, mediaIDs), docs
-}
-
 func (n *IssueDoneNotifier) forwardIssueDoneFiles(ctx context.Context, s *sender, target sendTarget, files []db.Attachment) {
 	if n.store == nil || len(files) == 0 {
 		return
 	}
 	for _, row := range files {
+		if issueDoneAttachmentKind(row) != issueDoneKindFile {
+			continue
+		}
 		if err := n.forwardOneIssueDoneFile(ctx, s, target, row); err != nil {
 			n.logger.WarnContext(ctx, "dingtalk issue-done notify: attachment not forwarded",
 				"error", err,
@@ -186,11 +181,15 @@ func (n *IssueDoneNotifier) forwardIssueDoneFiles(ctx context.Context, s *sender
 
 func (n *IssueDoneNotifier) forwardOneIssueDoneFile(ctx context.Context, s *sender, target sendTarget, row db.Attachment) error {
 	filename := issueDoneFilename(row.Filename)
+	fileType, ok := issueDoneSampleFileType(filename, row.ContentType)
+	if !ok {
+		return fmt.Errorf("dingtalk: fileType for %q is outside sampleFile's supported list", filename)
+	}
 	mediaID, err := n.uploadIssueDoneAttachment(ctx, s, row, issueDoneUploadType(issueDoneKindFile))
 	if err != nil {
 		return err
 	}
-	_, err = s.sendSampleFile(ctx, target, filename, issueDoneSampleFileType(filename, row.ContentType), mediaID)
+	_, err = s.sendSampleFile(ctx, target, filename, fileType, mediaID)
 	return err
 }
 

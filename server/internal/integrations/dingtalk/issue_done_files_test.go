@@ -24,8 +24,8 @@ func TestPlanIssueDoneAttachments(t *testing.T) {
 	}
 
 	send, skipped, partial = planIssueDoneAttachments([]db.Attachment{png, exe})
-	if len(send) != 2 || partial || send[0].Filename != "a.png" || send[1].Filename != "c.exe" {
-		t.Fatalf("off-list still sends: send=%v skipped=%v partial=%v", send, skipped, partial)
+	if len(send) != 1 || !partial || send[0].Filename != "a.png" || len(skipped) != 1 || skipped[0].Filename != "c.exe" {
+		t.Fatalf("unsupported: send=%v skipped=%v partial=%v", send, skipped, partial)
 	}
 
 	send, skipped, partial = planIssueDoneAttachments([]db.Attachment{huge, pdf})
@@ -51,15 +51,15 @@ func TestIssueDoneAttachmentKind(t *testing.T) {
 		{"png", "image/png", "a.png", issueDoneKindImage},
 		{"jpeg param", "image/jpeg; charset=binary", "a.jpg", issueDoneKindImage},
 		{"webp", "image/webp", "a.webp", issueDoneKindImage},
-		{"svg is not embeddable", "image/svg+xml", "a.svg", issueDoneKindFile},
+		{"svg blocked", "image/svg+xml", "a.svg", issueDoneKindSkip},
 		{"pdf", "application/pdf", "a.pdf", issueDoneKindFile},
 		{"docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "a.docx", issueDoneKindFile},
 		{"xlsx by ext", "application/octet-stream", "a.xlsx", issueDoneKindFile},
-		{"pptx off-list", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "a.pptx", issueDoneKindFile},
-		{"xls off-list", "application/vnd.ms-excel", "a.xls", issueDoneKindFile},
-		{"txt off-list", "text/plain", "a.txt", issueDoneKindFile},
-		{"exe off-list", "application/octet-stream", "a.exe", issueDoneKindFile},
-		{"empty", "", "", issueDoneKindFile},
+		{"pptx not in sampleFile list", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "a.pptx", issueDoneKindSkip},
+		{"xls not in sampleFile list", "application/vnd.ms-excel", "a.xls", issueDoneKindSkip},
+		{"txt", "text/plain", "a.txt", issueDoneKindSkip},
+		{"exe", "application/octet-stream", "a.exe", issueDoneKindSkip},
+		{"empty", "", "", issueDoneKindSkip},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -72,33 +72,23 @@ func TestIssueDoneAttachmentKind(t *testing.T) {
 }
 
 func TestIssueDoneSampleFileType(t *testing.T) {
-	if got := issueDoneSampleFileType("表格.xlsx", ""); got != "xlsx" {
-		t.Fatalf("xlsx = %q", got)
+	if got, ok := issueDoneSampleFileType("表格.xlsx", ""); !ok || got != "xlsx" {
+		t.Fatalf("xlsx = %q ok=%v", got, ok)
 	}
-	if got := issueDoneSampleFileType("noext", "application/pdf"); got != "pdf" {
-		t.Fatalf("pdf mime = %q", got)
+	if got, ok := issueDoneSampleFileType("noext", "application/pdf"); !ok || got != "pdf" {
+		t.Fatalf("pdf mime = %q ok=%v", got, ok)
 	}
-	if got := issueDoneSampleFileType("deck.pptx", ""); got != "pptx" {
-		t.Fatalf("off-list ext = %q", got)
+	if _, ok := issueDoneSampleFileType("shot.png", "image/png"); ok {
+		t.Fatal("png must not use sampleFile")
 	}
-	if got := issueDoneSampleFileType("noext", ""); got != "file" {
-		t.Fatalf("fallback = %q", got)
+	if _, ok := issueDoneSampleFileType("deck.pptx", ""); ok {
+		t.Fatal("pptx is outside the official sampleFile list")
 	}
 }
 
 func TestIssueDoneImageMarkdown(t *testing.T) {
-	if got := issueDoneImageMarkdown("@media-1"); got != "![](@media-1)" {
+	if got := issueDoneImageMarkdown("@media-1"); got != "![图片](@media-1)" {
 		t.Fatalf("got %q", got)
-	}
-}
-
-func TestAppendIssueDoneImageMarkdown(t *testing.T) {
-	got := appendIssueDoneImageMarkdown("# MARO-1 已完成\n", []string{"@a", "@b"})
-	if !strings.Contains(got, "# MARO-1 已完成") || !strings.Contains(got, "![](@a)") || !strings.Contains(got, "![](@b)") {
-		t.Fatalf("got %q", got)
-	}
-	if appendIssueDoneImageMarkdown("body", nil) != "body" {
-		t.Fatal("empty media list must keep body")
 	}
 }
 

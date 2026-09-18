@@ -199,18 +199,16 @@ func (n *IssueDoneNotifier) notifyMember(ctx context.Context, wsID pgtype.UUID, 
 	}
 	s := &sender{client: n.client, robotCode: creds.RobotCode, appKey: creds.AppKey, appSecret: creds.AppSecret}
 	target := sendTarget{ConversationType: convTypeP2P, StaffID: binding.ChannelUserID}
-	sendCtx := ctx
-	if len(files) > 0 {
-		var cancel context.CancelFunc
-		sendCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), issueDoneFileTimeout)
-		defer cancel()
-	}
-	body, docs := n.prepareIssueDoneMarkdown(sendCtx, s, body, files)
-	if _, err := s.send(sendCtx, target, body); err != nil {
+	if _, err := s.send(ctx, target, body); err != nil {
 		n.unclaim(key)
 		return fmt.Errorf("post dingtalk issue-done notify: %w", err)
 	}
-	n.forwardIssueDoneFiles(sendCtx, s, target, docs)
+	if len(files) > 0 {
+		fileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), issueDoneFileTimeout)
+		defer cancel()
+		n.forwardIssueDoneImages(fileCtx, s, target, files)
+		n.forwardIssueDoneFiles(fileCtx, s, target, files)
+	}
 	return nil
 }
 
