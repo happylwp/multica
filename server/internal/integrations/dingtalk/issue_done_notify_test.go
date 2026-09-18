@@ -725,6 +725,11 @@ func TestIssueDoneSeenExpiresAndEvictsOldest(t *testing.T) {
 	if !capped.claim("c") {
 		t.Fatal("claim beyond cap must succeed")
 	}
+	if capped.claim("b") || capped.claim("c") {
+		t.Fatal("newer keys must remain after evicting the oldest")
+	}
+	// Same frozen clock for a/b/c; eviction must still drop insertion-oldest "a"
+	// (seq), not a random Range/sort tie on equal timestamps.
 	if !capped.claim("a") {
 		t.Fatal("oldest key should be evicted and reclaimable")
 	}

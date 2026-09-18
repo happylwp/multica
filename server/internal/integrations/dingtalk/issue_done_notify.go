@@ -59,7 +59,8 @@ type issueDoneRecipient struct {
 }
 
 type seenEntry struct {
-	at time.Time
+	at  time.Time
+	seq int64
 }
 
 // IssueDoneNotifier pushes a 1:1 DingTalk markdown message when an issue
@@ -85,6 +86,7 @@ type IssueDoneNotifier struct {
 	// enough.
 	seen      sync.Map
 	seenSize  atomic.Int64
+	seenSeq   atomic.Int64
 	seenEvict sync.Mutex
 	seenTTL   time.Duration
 	seenMax   int
@@ -328,8 +330,8 @@ func (n *IssueDoneNotifier) claim(key string) bool {
 	if ttl <= 0 {
 		ttl = issueDoneSeenTTL
 	}
-	ent := seenEntry{at: now}
 	for {
+		ent := seenEntry{at: now, seq: n.seenSeq.Add(1)}
 		actual, loaded := n.seen.LoadOrStore(key, ent)
 		if !loaded {
 			n.seenSize.Add(1)
@@ -388,8 +390,8 @@ func (n *IssueDoneNotifier) evictIfNeeded(now time.Time) {
 	}
 
 	type kv struct {
-		k any
-		t time.Time
+		k   any
+		seq int64
 	}
 	items := make([]kv, 0, max+1)
 	n.seen.Range(func(k, v any) bool {
@@ -397,10 +399,12 @@ func (n *IssueDoneNotifier) evictIfNeeded(now time.Time) {
 		if !ok {
 			return true
 		}
-		items = append(items, kv{k: k, t: e.at})
+		items = append(items, kv{k: k, seq: e.seq})
 		return true
 	})
-	sort.Slice(items, func(i, j int) bool { return items[i].t.Before(items[j].t) })
+	// seq is insertion order. Wall-clock ties (tests freeze now(); production
+	// claims in the same nanosecond) must still evict the earliest insert.
+	sort.Slice(items, func(i, j int) bool { return items[i].seq < items[j].seq })
 	overflow := int(n.seenSize.Load()) - max
 	if overflow <= 0 {
 		return
