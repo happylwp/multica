@@ -1,11 +1,14 @@
 package dingtalk
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -165,7 +168,7 @@ func TestIssueDoneNotifierSendsP2POnDone(t *testing.T) {
 		t.Fatalf("userIds = %v", d.lastBody["userIds"])
 	}
 	text := decodeMsgParamText(t, d.lastBody)
-	for _, want := range []string{"MARO-45", "实现终态钉钉推送", "done", "已合并到 feature 分支，本地测试通过。"} {
+	for _, want := range []string{"MARO\\-45", "实现终态钉钉推送", "done", "已合并到 feature 分支，本地测试通过。"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, text)
 		}
@@ -242,6 +245,9 @@ func TestIssueDoneNotifierSkipsUnboundMembers(t *testing.T) {
 	}
 	if q.installCalls != 0 {
 		t.Fatalf("unbound path must not load installation, calls=%d", q.installCalls)
+	}
+	if q.commentCalls != 0 {
+		t.Fatalf("unbound path must not load comments, calls=%d", q.commentCalls)
 	}
 }
 
@@ -388,6 +394,9 @@ func TestIssueDoneNotifierRespectsMutedStatusChanges(t *testing.T) {
 	if q.bindingCalls != 0 {
 		t.Fatalf("muted recipient must not look up binding, calls=%d", q.bindingCalls)
 	}
+	if q.commentCalls != 0 {
+		t.Fatalf("muted recipient must not load comments, calls=%d", q.commentCalls)
+	}
 }
 
 func TestIssueDoneNotifierCustomDoneCategory(t *testing.T) {
@@ -417,6 +426,39 @@ func TestIssueDoneNotifierCustomDoneCategory(t *testing.T) {
 	}
 	if q.statusCalls != 1 {
 		t.Fatalf("empty status_category must consult catalog, calls=%d", q.statusCalls)
+	}
+}
+
+func TestIssueDoneNotifierSkipsCustomClosedCategory(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	assignee := sessionUUID(1)
+	q := &fakeIssueDoneQueries{
+		binding: db.ChannelUserBinding{InstallationID: sessionUUID(20), ChannelUserID: "staff-1"},
+		installation: db.ChannelInstallation{
+			ID: sessionUUID(20), Status: "active", Config: testIssueDoneInstallationConfig(t),
+		},
+		prefErr:     pgx.ErrNoRows,
+		statusEntry: db.IssueStatus{Key: "wont_fix", Category: issuestatus.CategoryClosed, Name: "不修复"},
+	}
+	n := testIssueDoneNotifier(t, q, d)
+	issue := baseDoneIssue(t, assignee, assignee)
+	issue["status"] = "wont_fix"
+	issue["status_category"] = ""
+	issue["status_name"] = "不修复"
+	if err := n.processIssueUpdated(context.Background(), events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(issue),
+	}); err != nil {
+		t.Fatalf("processIssueUpdated: %v", err)
+	}
+	if d.sendCalls != 0 {
+		t.Fatalf("custom closed-category status must not notify, sends=%d", d.sendCalls)
+	}
+	if q.statusCalls != 1 {
+		t.Fatalf("empty status_category must consult catalog, calls=%d", q.statusCalls)
+	}
+	if q.bindingCalls != 0 || q.commentCalls != 0 {
+		t.Fatalf("closed custom status must not look up recipients or comments: bindings=%d comments=%d", q.bindingCalls, q.commentCalls)
 	}
 }
 
@@ -483,7 +525,7 @@ func TestFormatIssueDoneMarkdownIncludesFieldsAndTruncatesSummary(t *testing.T) 
 		Title:      "实现终态钉钉推送",
 		Status:     "done",
 	}, "agent wrapped it up")
-	for _, want := range []string{"# MARO-45 已完成", "**标题：** 实现终态钉钉推送", "**状态：** done", "**结果摘要：**", "agent wrapped it up"} {
+	for _, want := range []string{"# MARO\\-45 已完成", "**标题：** 实现终态钉钉推送", "**状态：** done", "**结果摘要：**", "agent wrapped it up"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q in %s", want, text)
 		}
@@ -583,5 +625,156 @@ func TestIssueDoneDedupeKeyIncludesRecipient(t *testing.T) {
 	c := issueDoneDedupeKey("i", 8, "done", "u1")
 	if a == b || a == c {
 		t.Fatalf("keys collided: %q %q %q", a, b, c)
+	}
+}
+
+func TestFormatIssueDoneMarkdownEscapesUserFieldsKeepsSummary(t *testing.T) {
+	text := formatIssueDoneMarkdown(issueDoneSnapshot{
+		Identifier: "X-1 [link](http://evil.example)",
+		Title:      "see [docs](http://evil.example) **now**",
+		Status:     "shipped",
+		StatusName: "已上线 *v2*",
+	}, "摘要保留 [markdown](http://ok.example) 与 **粗体**")
+	if strings.Contains(text, "[link](http://evil.example)") {
+		t.Fatalf("identifier must be escaped, got %s", text)
+	}
+	if strings.Contains(text, "[docs](http://evil.example)") {
+		t.Fatalf("title must be escaped, got %s", text)
+	}
+	if !strings.Contains(text, "\\[link\\]") || !strings.Contains(text, "\\[docs\\]") {
+		t.Fatalf("escaped brackets missing: %s", text)
+	}
+	if !strings.Contains(text, "已上线 \\*v2\\*") {
+		t.Fatalf("status name must be escaped, got %s", text)
+	}
+	if !strings.Contains(text, "摘要保留 [markdown](http://ok.example) 与 **粗体**") {
+		t.Fatalf("summary markdown must be preserved, got %s", text)
+	}
+}
+
+func TestIssueDoneHandleSkipsSpawnWhenStatusDidNotChange(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	q := &fakeIssueDoneQueries{prefErr: pgx.ErrNoRows}
+	n := testIssueDoneNotifier(t, q, d)
+	spawned := 0
+	n.spawn = func(f func()) {
+		spawned++
+		f()
+	}
+	n.handleIssueUpdated(events.Event{
+		Type: protocol.EventIssueUpdated,
+		Payload: map[string]any{
+			"issue":          baseDoneIssue(t, sessionUUID(1), sessionUUID(2)),
+			"status_changed": false,
+			"title_changed":  true,
+		},
+	})
+	if spawned != 0 || d.sendCalls != 0 || q.statusCalls != 0 {
+		t.Fatalf("non-status update must not spawn: spawned=%d sends=%d statusLookups=%d", spawned, d.sendCalls, q.statusCalls)
+	}
+}
+
+func TestIssueDoneHandleRecoversPanic(t *testing.T) {
+	d := newDingtalkSendServer(t)
+	q := &panicCommentsQueries{fakeIssueDoneQueries: fakeIssueDoneQueries{
+		binding: db.ChannelUserBinding{InstallationID: sessionUUID(20), ChannelUserID: "staff-1"},
+		installation: db.ChannelInstallation{
+			ID: sessionUUID(20), Status: "active", Config: testIssueDoneInstallationConfig(t),
+		},
+		prefErr: pgx.ErrNoRows,
+	}}
+	n := testIssueDoneNotifier(t, &q.fakeIssueDoneQueries, d)
+	n.q = q
+	var buf bytes.Buffer
+	n.logger = slog.New(slog.NewTextHandler(&buf, nil))
+	n.handleIssueUpdated(events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(baseDoneIssue(t, sessionUUID(1), sessionUUID(1))),
+	})
+	log := buf.String()
+	if !strings.Contains(log, "dingtalk issue-done notify: panic") || !strings.Contains(log, "boom") {
+		t.Fatalf("expected panic Error log, got %q", log)
+	}
+	if d.sendCalls != 0 {
+		t.Fatalf("panic path must not send, sends=%d", d.sendCalls)
+	}
+}
+
+type panicCommentsQueries struct {
+	fakeIssueDoneQueries
+}
+
+func (q *panicCommentsQueries) ListCommentsForIssue(_ context.Context, _ db.ListCommentsForIssueParams) ([]db.Comment, error) {
+	q.commentCalls++
+	panic("boom")
+}
+
+func TestIssueDoneSeenExpiresAndEvictsOldest(t *testing.T) {
+	clock := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	capped := NewIssueDoneNotifier(&fakeIssueDoneQueries{}, nil, NewClient(nil, ""), nil)
+	capped.now = func() time.Time { return clock }
+	capped.seenTTL = 24 * time.Hour
+	capped.seenMax = 2
+	if !capped.claim("a") || !capped.claim("b") {
+		t.Fatal("first two claims must succeed")
+	}
+	if capped.claim("a") {
+		t.Fatal("duplicate within TTL must be rejected")
+	}
+	if !capped.claim("c") {
+		t.Fatal("claim beyond cap must succeed")
+	}
+	if capped.claim("b") || capped.claim("c") {
+		t.Fatal("newer keys must remain after evicting the oldest")
+	}
+	// Same frozen clock for a/b/c; eviction must still drop insertion-oldest "a"
+	// (seq), not a random Range/sort tie on equal timestamps.
+	if !capped.claim("a") {
+		t.Fatal("oldest key should be evicted and reclaimable")
+	}
+
+	expiring := NewIssueDoneNotifier(&fakeIssueDoneQueries{}, nil, NewClient(nil, ""), nil)
+	expiring.now = func() time.Time { return clock }
+	expiring.seenTTL = time.Hour
+	expiring.seenMax = 8
+	if !expiring.claim("k") {
+		t.Fatal("claim")
+	}
+	if expiring.claim("k") {
+		t.Fatal("duplicate within TTL must be rejected")
+	}
+	clock = clock.Add(2 * time.Hour)
+	if !expiring.claim("k") {
+		t.Fatal("expired key must be reclaimable")
+	}
+}
+
+func TestIssueDoneNotifierMultiRecipientFailureIncludesIssueID(t *testing.T) {
+	assignee, creator := sessionUUID(1), sessionUUID(2)
+	instID := sessionUUID(20)
+	q := &fakeIssueDoneQueries{
+		bindings: map[string]db.ChannelUserBinding{
+			util.UUIDToString(assignee): {InstallationID: instID, ChannelUserID: "staff-a"},
+			util.UUIDToString(creator):  {InstallationID: instID, ChannelUserID: "staff-c"},
+		},
+		installation: db.ChannelInstallation{
+			ID: instID, Status: "active", Config: testIssueDoneInstallationConfig(t),
+		},
+		prefErr: pgx.ErrNoRows,
+	}
+	n := NewIssueDoneNotifier(q, nil, NewClient(nil, "http://127.0.0.1:1"), nil)
+	n.spawn = func(f func()) { f() }
+	issue := baseDoneIssue(t, assignee, creator)
+	var buf bytes.Buffer
+	n.logger = slog.New(slog.NewTextHandler(&buf, nil))
+	n.handleIssueUpdated(events.Event{
+		Type:    protocol.EventIssueUpdated,
+		Payload: doneIssuePayload(issue),
+	})
+	log := buf.String()
+	issueID := issue["id"].(string)
+	if !strings.Contains(log, "delivery failed") || !strings.Contains(log, issueID) {
+		t.Fatalf("multi-recipient failure must log issue_id, got %q", log)
 	}
 }
