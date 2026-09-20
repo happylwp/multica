@@ -943,10 +943,6 @@ func (q *Queries) ListAttachmentsByIssue(ctx context.Context, arg ListAttachment
 }
 
 const listAttachmentsByIssueAndComment = `-- name: ListAttachmentsByIssueAndComment :many
--- Attachments bound to one comment on a specific issue. DingTalk issue-done
--- notify uses this to forward the terminal agent comment's files; issue_id is
--- a defense-in-depth owner guard so a comment id from another issue cannot
--- leak files.
 SELECT id, workspace_id, issue_id, comment_id, uploader_type, uploader_id, filename, url, content_type, size_bytes, created_at, chat_session_id, chat_message_id, task_id, source_context_id FROM attachment
 WHERE workspace_id = $1
   AND issue_id = $2
@@ -960,6 +956,10 @@ type ListAttachmentsByIssueAndCommentParams struct {
 	CommentID   pgtype.UUID `json:"comment_id"`
 }
 
+// Attachments bound to one comment on a specific issue. DingTalk issue-done
+// notify uses this to forward the terminal agent comment's files; issue_id is
+// a defense-in-depth owner guard so a comment id from another issue cannot
+// leak files.
 func (q *Queries) ListAttachmentsByIssueAndComment(ctx context.Context, arg ListAttachmentsByIssueAndCommentParams) ([]Attachment, error) {
 	rows, err := q.db.Query(ctx, listAttachmentsByIssueAndComment, arg.WorkspaceID, arg.IssueID, arg.CommentID)
 	if err != nil {
