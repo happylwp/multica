@@ -126,11 +126,11 @@ func TestQRConfirmEncryptsTokenAndBindsInstaller(t *testing.T) {
 		case strings.Contains(r.URL.Path, "get_bot_qrcode"):
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"qrcode": "qr-1", "qrcode_img_content": srv.URL + "/qr.png?key=SESSION",
+				"qrcode":             "qr-1",
+				"qrcode_img_content": srv.URL + "/h5?qrcode=SESSION&bot_type=3",
 			})
-		case r.URL.Path == "/qr.png":
-			w.Header().Set("Content-Type", "image/png")
-			_, _ = w.Write(png1x1)
+		case r.URL.Path == "/h5":
+			t.Fatal("must not fetch the iLink landing page")
 		case strings.Contains(r.URL.Path, "get_qrcode_status"):
 			w.Header().Set("Content-Type", "application/json")
 			if status != QRStatusConfirmed {
@@ -160,8 +160,8 @@ func TestQRConfirmEncryptsTokenAndBindsInstaller(t *testing.T) {
 	if !strings.HasPrefix(started.ImageContent, "data:image/png;base64,") || started.ImageError != "" {
 		t.Fatalf("embedded image = %+v", started)
 	}
-	if !strings.Contains(started.ImageURL, "/qr.png") {
-		t.Fatalf("original url dropped: %s", started.ImageURL)
+	if !strings.Contains(started.ImageURL, "/h5") || strings.Contains(started.ImageContent, "SESSION") {
+		t.Fatalf("original url dropped or leaked into src: %+v", started)
 	}
 
 	polled, err := svc.PollQR(context.Background(), PollQRParams{WorkspaceID: wechatTestUUID(1), QRCode: started.Key})
@@ -196,18 +196,12 @@ func TestQRConfirmEncryptsTokenAndBindsInstaller(t *testing.T) {
 	}
 }
 
-func TestStartQRImageFetchFailureKeepsSession(t *testing.T) {
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.Contains(r.URL.Path, "get_bot_qrcode"):
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"qrcode": "qr-fail", "qrcode_img_content": srv.URL + "/missing?key=SESSION",
-			})
-		default:
-			http.NotFound(w, r)
-		}
+func TestStartQREmptyLandingURLKeepsSession(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"qrcode": "qr-fail", "qrcode_img_content": "",
+		})
 	}))
 	defer srv.Close()
 
@@ -220,10 +214,27 @@ func TestStartQRImageFetchFailureKeepsSession(t *testing.T) {
 		t.Fatalf("start = %+v err=%v", started, err)
 	}
 	if started.ImageContent != "" || started.ImageError == "" {
-		t.Fatalf("expected fetch error with empty content: %+v", started)
+		t.Fatalf("expected encode error with empty content: %+v", started)
 	}
 	if _, ok := svc.pending["qr-fail"]; !ok {
-		t.Fatal("session must stay pending after image fetch failure")
+		t.Fatal("session must stay pending after encode failure")
+	}
+}
+
+func TestPollQRTimeoutReturnsWait(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": QRStatusScanned})
+	}))
+	defer srv.Close()
+
+	svc := newWechatInstallTestService(t, &fakeWechatInstallQueries{})
+	svc.api = newILinkClient(srv.URL, "", srv.Client())
+	svc.api.qrStatus.Timeout = 30 * time.Millisecond
+	svc.pending["qr"] = pendingQR{WorkspaceID: wechatTestUUID(1), CreatedAt: time.Now()}
+	polled, err := svc.PollQR(context.Background(), PollQRParams{WorkspaceID: wechatTestUUID(1), QRCode: "qr"})
+	if err != nil || polled.Status != QRStatusWait {
+		t.Fatalf("client timeout must stay wait, not 503: %+v err=%v", polled, err)
 	}
 }
 

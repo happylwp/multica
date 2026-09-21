@@ -161,13 +161,13 @@ func (s *InstallService) StartQR(ctx context.Context, p StartQRParams) (StartedQ
 		ImageURL:  qr.ImageURL,
 		ExpiresIn: int(qrSessionTTL.Seconds()),
 	}
-	content, fetchErr := embedQRImage(ctx, s.client, qr.ImageURL)
-	if fetchErr != nil {
+	content, encErr := encodeQRImage(qr.ImageURL)
+	if encErr != nil {
 		prefix, n := qrImageURLLogMeta(qr.ImageURL)
-		s.logger.WarnContext(ctx, "wechat: failed to fetch QR image",
+		s.logger.WarnContext(ctx, "wechat: failed to encode QR image",
 			"url_prefix", prefix,
 			"url_len", n,
-			"error_kind", qrImageFetchKind(fetchErr),
+			"error_kind", qrImageEncodeKind(encErr),
 		)
 		out.ImageError = "could not load qr image"
 		return out, nil

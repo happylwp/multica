@@ -10,8 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -27,6 +29,7 @@ const (
 	defaultILinkAppID     = "openclaw-weixin"
 	longPollTimeout       = 40 * time.Second
 	apiTimeout            = 15 * time.Second
+	qrStatusTimeout       = 75 * time.Second
 )
 
 // Official QR statuses (openclaw-weixin backend-api). "scaned" is the
@@ -82,6 +85,7 @@ type iLinkClient struct {
 	botAgent  string
 	client    *http.Client
 	longPoll  *http.Client
+	qrStatus  *http.Client
 }
 
 func newILinkClient(apiBase, token string, httpClient *http.Client) *iLinkClient {
@@ -96,6 +100,10 @@ func newILinkClient(apiBase, token string, httpClient *http.Client) *iLinkClient
 	if longPoll.Timeout < longPollTimeout {
 		longPoll.Timeout = longPollTimeout
 	}
+	qrStatus := *httpClient
+	if qrStatus.Timeout < qrStatusTimeout {
+		qrStatus.Timeout = qrStatusTimeout
+	}
 	return &iLinkClient{
 		loginBase: defaultLoginBase(apiBase),
 		apiBase:   apiBase,
@@ -105,6 +113,7 @@ func newILinkClient(apiBase, token string, httpClient *http.Client) *iLinkClient
 		botAgent:  defaultBotAgent,
 		client:    httpClient,
 		longPoll:  &longPoll,
+		qrStatus:  &qrStatus,
 	}
 }
 
@@ -275,15 +284,41 @@ type QRStatus struct {
 	Redirect string `json:"redirect_host,omitempty"`
 }
 
+func isClientTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
+func (c *iLinkClient) qrStatusClient() *http.Client {
+	if c != nil && c.qrStatus != nil {
+		return c.qrStatus
+	}
+	if c != nil && c.client != nil {
+		return c.client
+	}
+	return &http.Client{Timeout: qrStatusTimeout}
+}
+
 // GetQRCodeStatus long-polls one QR session. Official: GET.
+// Upstream holds a live key until scan/expiry; a 15s client timeout looks
+// like 503 to the settings page. Timeouts are "still waiting", not errors.
 func (c *iLinkClient) GetQRCodeStatus(ctx context.Context, qrcode, verifyCode string) (QRStatus, error) {
 	q := url.Values{"qrcode": []string{qrcode}}
 	if verifyCode != "" {
 		q.Set("verify_code", verifyCode)
 	}
 	var out QRStatus
-	err := c.do(ctx, c.client, http.MethodGet, "ilink/bot/get_qrcode_status", q, nil, false, &out)
+	err := c.do(ctx, c.qrStatusClient(), http.MethodGet, "ilink/bot/get_qrcode_status", q, nil, false, &out)
 	if err != nil {
+		if isClientTimeout(err) {
+			return QRStatus{Status: QRStatusWait}, nil
+		}
 		return QRStatus{}, err
 	}
 	if out.Status == "" {
