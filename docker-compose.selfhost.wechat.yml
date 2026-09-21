@@ -1,0 +1,8 @@
+# Local override: pass the WeChat / iLink bot encryption key into the backend.
+# The stock docker-compose.selfhost.yml environment whitelist does not yet
+# include it; layer this file explicitly:
+#   docker compose -f docker-compose.selfhost.yml -f docker-compose.selfhost.wechat.yml up -d
+services:
+  backend:
+    environment:
+      MULTICA_WECHAT_SECRET_KEY: ${MULTICA_WECHAT_SECRET_KEY:?set MULTICA_WECHAT_SECRET_KEY in .env}

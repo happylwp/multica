@@ -33,6 +33,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/integrations/lark"
 	"github.com/multica-ai/multica/server/internal/integrations/slack"
 	"github.com/multica-ai/multica/server/internal/integrations/telegram"
+	"github.com/multica-ai/multica/server/internal/integrations/wechat"
 	"github.com/multica-ai/multica/server/internal/integrations/wecom"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
@@ -1133,6 +1134,50 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		slog.Info("telegram integration disabled (MULTICA_TELEGRAM_SECRET_KEY not set)")
 	}
 
+	// WeChat / iLink (personal ClawBot) integration. QR login + getupdates
+	// long polling, gated by MULTICA_WECHAT_SECRET_KEY (at-rest encryption
+	// of the iLink bot token and per-conversation context_token).
+	if wechatKey, err := secretbox.LoadKey("MULTICA_WECHAT_SECRET_KEY"); err == nil {
+		box, err := secretbox.New(wechatKey)
+		if err != nil {
+			slog.Error("wechat: secretbox.New failed; wechat integration disabled", "error", err)
+		} else {
+			wechatQuota := wechat.NewQuotaStore()
+			installSvc, ierr := wechat.NewInstallService(queries, pool, box, wechatQuota, slog.Default())
+			if ierr != nil {
+				slog.Error("wechat: InstallService init failed; wechat integration disabled", "error", ierr)
+			} else {
+				h.WechatInstall = installSvc
+				wechatBindingSvc := wechat.NewBindingTokenService(queries, pool)
+				h.WechatBindingTokens = wechatBindingSvc
+				wechatReplier := wechat.NewOutboundReplier(wechat.OutboundReplierConfig{
+					Binding: wechatBindingSvc,
+					Decrypt: box.Open,
+					Encrypt: box.Seal,
+					Quota:   wechatQuota,
+					Persist: installSvc,
+					AppURL:  appURLFromEnv(),
+					Logger:  slog.Default(),
+				})
+				channelRouter.Register(wechat.TypeWechat, wechat.NewWechatResolverSet(queries, pool, wechatReplier))
+				wechatOutbound := wechat.NewOutbound(queries, box.Open, box.Seal, wechatQuota, installSvc, "", nil, slog.Default())
+				wechatOutbound.Register(bus)
+				h.WechatOutbound = wechatOutbound
+				wechat.NewIssueDoneNotifier(queries, box.Open, box.Seal, wechatQuota, installSvc, "", nil, slog.Default()).Register(bus)
+				wechat.RegisterWechat(channelRegistry, wechat.ChannelDeps{
+					Decrypt: box.Open,
+					Encrypt: box.Seal,
+					Quota:   wechatQuota,
+					Persist: installSvc,
+					Logger:  slog.Default(),
+				})
+				slog.Info("wechat integration enabled (iLink long polling)")
+			}
+		}
+	} else {
+		slog.Info("wechat integration disabled (MULTICA_WECHAT_SECRET_KEY not set)")
+	}
+
 	// Composio integration (MUL-3720). Gated by COMPOSIO_API_KEY plus the
 	// composio_mcp_apps feature flag. The env var is the project-scoped key the
 	// standalone SDK authenticates Composio with (sent as x-api-key; the project
@@ -1761,6 +1806,20 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Delete("/telegram/installations/{installationId}", h.RevokeTelegramInstallation)
 					r.Post("/telegram/install", h.RegisterTelegramBot)
 				})
+
+				// WeChat / iLink. Listing is member-visible; QR bind + revoke
+				// are admin-only. POST .../wechat/qrcode/status is the
+				// Multica-side poll the settings page uses.
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.RequireWorkspaceMemberFromURL(queries, "id"))
+					r.Get("/wechat/installations", h.ListWechatInstallations)
+				})
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner", "admin"))
+					r.Post("/wechat/qrcode", h.StartWechatQR)
+					r.Post("/wechat/qrcode/status", h.PollWechatQR)
+					r.Delete("/wechat/installations/{installationId}", h.RevokeWechatInstallation)
+				})
 			})
 		})
 
@@ -1788,6 +1847,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// workspace-scoped, identity from the session, token proves only
 		// "this Telegram user id requested binding".
 		r.Post("/api/telegram/binding/redeem", h.RedeemTelegramBindingToken)
+		r.Post("/api/wechat/binding/redeem", h.RedeemWechatBindingToken)
 
 		// Composio integration (MUL-3720). User-scoped (no workspace context):
 		// a connection belongs to a user. These four require a logged-in

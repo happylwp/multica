@@ -215,4 +215,9 @@ const (
 	// front-ends invalidate the Telegram installations query on either.
 	EventTelegramInstallationCreated = "telegram_installation:created"
 	EventTelegramInstallationRevoked = "telegram_installation:revoked"
+
+	// WeChat / iLink installation lifecycle. Same contract as Telegram:
+	// front-ends invalidate the WeChat installations query on either.
+	EventWechatInstallationCreated = "wechat_installation:created"
+	EventWechatInstallationRevoked = "wechat_installation:revoked"
 )

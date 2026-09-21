@@ -32,6 +32,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/integrations/lark"
 	"github.com/multica-ai/multica/server/internal/integrations/slack"
 	"github.com/multica-ai/multica/server/internal/integrations/telegram"
+	"github.com/multica-ai/multica/server/internal/integrations/wechat"
 	"github.com/multica-ai/multica/server/internal/integrations/wecom"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
@@ -354,6 +355,15 @@ type Handler struct {
 	// The process owner starts and joins it; the synchronous event bus only
 	// enqueues EventChatDone work.
 	TelegramOutbound *telegram.Outbound
+
+	// WechatInstall owns QR login / list / revoke and the at-rest
+	// encryption of each iLink bot token. Nil unless MULTICA_WECHAT_SECRET_KEY is set.
+	WechatInstall *wechat.InstallService
+	// WechatBindingTokens mints/redeems the user-binding tokens behind the
+	// "link your WeChat account" prompt. Nil unless WeChat is configured.
+	WechatBindingTokens *wechat.BindingTokenService
+	// WechatOutbound owns the asynchronous terminal-delivery worker.
+	WechatOutbound *wechat.Outbound
 
 	// channelFileDelivery names the channel types that can, IN THIS
 	// DEPLOYMENT, carry a file the agent produced the last hop into the

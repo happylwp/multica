@@ -19,6 +19,12 @@ const (
 	// international cloud; the cloud (region) is per-installation config,
 	// not a separate Type.
 	TypeFeishu Type = "feishu"
+
+	// TypeWechat is the personal WeChat / iLink (ClawBot) adapter. Official
+	// HTTP long-polling, one installation per scanned WeChat account. The
+	// 24h session window and 10-message quota are adapter concerns, not a
+	// separate Type.
+	TypeWechat Type = "wechat"
 )
 
 // Channel is the platform-agnostic contract every IM integration
