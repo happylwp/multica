@@ -70,6 +70,9 @@ const slackListingRef = vi.hoisted(() => ({
 const telegramListingRef = vi.hoisted(() => ({
   current: { installations: [] as unknown[], configured: false },
 }));
+const wechatListingRef = vi.hoisted(() => ({
+  current: { installations: [] as unknown[], configured: false },
+}));
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
 }));
@@ -89,6 +92,12 @@ vi.mock("@multica/core/telegram", () => ({
   telegramInstallationsOptions: () => ({
     queryKey: ["telegram", "installations"],
     queryFn: () => Promise.resolve(telegramListingRef.current),
+  }),
+}));
+vi.mock("@multica/core/wechat", () => ({
+  wechatInstallationsOptions: () => ({
+    queryKey: ["wechat", "installations"],
+    queryFn: () => Promise.resolve(wechatListingRef.current),
   }),
 }));
 
@@ -186,6 +195,7 @@ beforeEach(() => {
   larkListingRef.current = { installations: [], configured: false };
   slackListingRef.current = { installations: [], configured: false };
   telegramListingRef.current = { installations: [], configured: false };
+  wechatListingRef.current = { installations: [], configured: false };
 });
 
 describe("AgentOverviewPane MCP tab visibility", () => {
@@ -248,6 +258,15 @@ describe("AgentOverviewPane Integrations tab visibility", () => {
 
   it("shows the Integrations tab when only Telegram is configured", async () => {
     telegramListingRef.current = { installations: [], configured: true };
+    renderPane([makeRuntime("claude")]);
+    openCapabilities();
+    expect(
+      await screen.findByRole("tab", { name: /^Integrations$/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the Integrations tab when only WeChat is configured", async () => {
+    wechatListingRef.current = { installations: [], configured: true };
     renderPane([makeRuntime("claude")]);
     openCapabilities();
     expect(

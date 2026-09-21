@@ -11,6 +11,7 @@ import {
   dingtalkInstallationsOptions,
 } from "@multica/core/dingtalk";
 import { wecomInstallationsOptions } from "@multica/core/wecom";
+import { wechatInstallationsOptions } from "@multica/core/wechat";
 import { telegramInstallationsOptions } from "@multica/core/telegram";
 import { memberListOptions } from "@multica/core/workspace/queries";
 import { LarkAgentBindButton } from "../../../settings/components/lark-tab";
@@ -26,6 +27,8 @@ import {
 import { DingTalkMark } from "../../../settings/components/dingtalk-mark";
 import { WecomAgentBindButton } from "../../../settings/components/wecom-tab";
 import { WecomMark } from "../../../settings/components/wecom-mark";
+import { WechatAgentBindButton } from "../../../settings/components/wechat-tab";
+import { WechatMark } from "../../../settings/components/wechat-mark";
 import { TelegramAgentBindButton } from "../../../settings/components/telegram-tab";
 import { TelegramMark } from "../../../settings/components/telegram-mark";
 import { useT } from "../../../i18n";
@@ -68,6 +71,10 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
     ...wecomInstallationsOptions(wsId),
     enabled: !!wsId,
   });
+  const { data: wechatListing } = useQuery({
+    ...wechatInstallationsOptions(wsId),
+    enabled: !!wsId,
+  });
   const { data: telegramListing } = useQuery({
     ...telegramInstallationsOptions(wsId),
     enabled: !!wsId,
@@ -95,6 +102,7 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
   const canManageLark = isWorkspaceAdmin || isAgentOwner;
   const canManageSlack = isWorkspaceAdmin;
   const canManageWecom = isWorkspaceAdmin;
+  const canManageWechat = isWorkspaceAdmin;
   const canManageTelegram = isWorkspaceAdmin;
   const hasActiveInstall =
     listing?.installations.some(
@@ -144,6 +152,13 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
       (inst) => inst.agent_id === agent.id && inst.status === "active",
     ) ?? false;
 
+  const wechatConfigured = wechatListing?.configured === true;
+  const wechatInstallSupported = wechatListing?.install_supported === true;
+  const wechatHasActiveInstall =
+    wechatListing?.installations.some(
+      (inst) => inst.agent_id === agent.id && inst.status === "active",
+    ) ?? false;
+
   const telegramConfigured = telegramListing?.configured === true;
   const telegramInstallSupported = telegramListing?.install_supported === true;
   const telegramHasActiveInstall =
@@ -160,6 +175,7 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
     !canManageSlack &&
     !canManageDingtalk &&
     !canManageWecom &&
+    !canManageWechat &&
     !canManageTelegram
   ) {
     return (
@@ -401,6 +417,40 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
             </div>
           ) : (
             <WecomAgentBindButton agentId={agent.id} agentName={agent.name} />
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border">
+        <div className="flex items-start gap-3 p-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
+            <WechatMark className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <h3 className="text-body font-medium">{ts(($) => $.wechat.section_title)}</h3>
+            <p className="text-caption leading-relaxed text-muted-foreground">
+              {ts(($) => $.wechat.page_description)}
+            </p>
+          </div>
+        </div>
+        <div className="border-t px-4 py-3">
+          {!canManageWechat ? (
+            <p className="text-caption text-muted-foreground">
+              {t(($) => $.tab_body.integrations.members_note)}
+            </p>
+          ) : !wechatConfigured ? (
+            <p className="text-caption text-muted-foreground">
+              {ts(($) => $.wechat.not_enabled_title)}
+            </p>
+          ) : !wechatInstallSupported && !wechatHasActiveInstall ? (
+            <div className="space-y-1">
+              <p className="text-caption font-medium">{ts(($) => $.wechat.preview_title)}</p>
+              <p className="text-caption text-muted-foreground">
+                {ts(($) => $.wechat.preview_description)}
+              </p>
+            </div>
+          ) : (
+            <WechatAgentBindButton agentId={agent.id} agentName={agent.name} />
           )}
         </div>
       </section>

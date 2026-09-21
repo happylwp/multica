@@ -29,6 +29,7 @@ import { larkKeys } from "../lark/queries";
 import { slackKeys } from "../slack/queries";
 import { dingtalkKeys } from "../dingtalk/queries";
 import { wecomKeys } from "../wecom/queries";
+import { wechatKeys } from "../wechat/queries";
 import { telegramKeys } from "../telegram/queries";
 import {
   onIssueCreated,
@@ -895,6 +896,10 @@ export function useRealtimeSync(
       wecom_installation: () => {
         const wsId = getCurrentWsId();
         if (wsId) qc.invalidateQueries({ queryKey: wecomKeys.installations(wsId) });
+      },
+      wechat_installation: () => {
+        const wsId = getCurrentWsId();
+        if (wsId) qc.invalidateQueries({ queryKey: wechatKeys.installations(wsId) });
       },
       telegram_installation: () => {
         const wsId = getCurrentWsId();

@@ -192,6 +192,10 @@ import type {
   ListWecomInstallationsResponse,
   RegisterWecomBYORequest,
   RedeemWecomBindingTokenResponse,
+  ListWechatInstallationsResponse,
+  CreateWechatBindQrcodeRequest,
+  WechatBindQrcode,
+  WechatBindStatusResponse,
   TelegramInstallation,
   ListTelegramInstallationsResponse,
   RegisterTelegramRequest,
@@ -364,6 +368,12 @@ import {
   EMPTY_WECOM_INSTALLATION,
   EMPTY_LIST_WECOM_INSTALLATIONS_RESPONSE,
   EMPTY_REDEEM_WECOM_BINDING_TOKEN_RESPONSE,
+  ListWechatInstallationsResponseSchema,
+  WechatBindQrcodeSchema,
+  WechatBindStatusResponseSchema,
+  EMPTY_LIST_WECHAT_INSTALLATIONS_RESPONSE,
+  EMPTY_WECHAT_BIND_QRCODE,
+  EMPTY_WECHAT_BIND_STATUS_RESPONSE,
   TelegramInstallationSchema,
   ListTelegramInstallationsResponseSchema,
   RedeemTelegramBindingTokenResponseSchema,
@@ -4966,5 +4976,58 @@ export class ApiClient {
       EMPTY_REDEEM_TELEGRAM_BINDING_TOKEN_RESPONSE,
       { endpoint: "POST /api/telegram/binding/redeem" },
     );
+  }
+
+  // Personal WeChat (iLink / official ClawBot plugin). Bind is QR + poll,
+  // not a pasted secret. Stage 1a owns the Go routes; if those paths
+  // differ, the settings page should follow the server.
+  async listWechatInstallations(workspaceId: string): Promise<ListWechatInstallationsResponse> {
+    const raw = await this.fetch<unknown>(`/api/workspaces/${workspaceId}/wechat/installations`);
+    return parseWithFallback(
+      raw,
+      ListWechatInstallationsResponseSchema,
+      EMPTY_LIST_WECHAT_INSTALLATIONS_RESPONSE,
+      { endpoint: "GET /api/workspaces/:id/wechat/installations" },
+    );
+  }
+
+  async createWechatBindQrcode(
+    workspaceId: string,
+    body: CreateWechatBindQrcodeRequest,
+  ): Promise<WechatBindQrcode> {
+    const search = new URLSearchParams({ agent_id: body.agent_id });
+    const raw = await this.fetch<unknown>(
+      `/api/workspaces/${workspaceId}/wechat/qrcode?${search.toString()}`,
+      { method: "POST" },
+    );
+    return parseWithFallback(raw, WechatBindQrcodeSchema, EMPTY_WECHAT_BIND_QRCODE, {
+      endpoint: "POST /api/workspaces/:id/wechat/qrcode",
+    });
+  }
+
+  async pollWechatBindStatus(
+    workspaceId: string,
+    qrcode: string,
+    verifyCode?: string,
+  ): Promise<WechatBindStatusResponse> {
+    const raw = await this.fetch<unknown>(
+      `/api/workspaces/${workspaceId}/wechat/qrcode/status`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          qrcode,
+          ...(verifyCode ? { verify_code: verifyCode } : {}),
+        }),
+      },
+    );
+    return parseWithFallback(raw, WechatBindStatusResponseSchema, EMPTY_WECHAT_BIND_STATUS_RESPONSE, {
+      endpoint: "POST /api/workspaces/:id/wechat/qrcode/status",
+    });
+  }
+
+  async deleteWechatInstallation(workspaceId: string, installationId: string): Promise<void> {
+    await this.fetch(`/api/workspaces/${workspaceId}/wechat/installations/${installationId}`, {
+      method: "DELETE",
+    });
   }
 }

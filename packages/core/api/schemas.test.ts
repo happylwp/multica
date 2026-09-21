@@ -7,6 +7,14 @@ import {
   EMPTY_WECOM_INSTALLATION,
   EMPTY_LIST_WECOM_INSTALLATIONS_RESPONSE,
   EMPTY_REDEEM_WECOM_BINDING_TOKEN_RESPONSE,
+  WechatInstallationSchema,
+  ListWechatInstallationsResponseSchema,
+  WechatBindQrcodeSchema,
+  WechatBindStatusResponseSchema,
+  EMPTY_WECHAT_INSTALLATION,
+  EMPTY_LIST_WECHAT_INSTALLATIONS_RESPONSE,
+  EMPTY_WECHAT_BIND_QRCODE,
+  EMPTY_WECHAT_BIND_STATUS_RESPONSE,
   TelegramInstallationSchema,
   ListTelegramInstallationsResponseSchema,
   RedeemTelegramBindingTokenResponseSchema,
@@ -1999,6 +2007,67 @@ describe("Telegram installation schemas", () => {
         { endpoint: "POST /api/telegram/binding/redeem" },
       ),
     ).toEqual(EMPTY_REDEEM_TELEGRAM_BINDING_TOKEN_RESPONSE);
+  });
+});
+
+describe("WeChat installation schemas", () => {
+  it("parses a bound account and keeps quota / window fields", () => {
+    const parsed = WechatInstallationSchema.parse({
+      id: "i1",
+      workspace_id: "w1",
+      nickname: "阿伟",
+      status: "active",
+      remaining_quota: 7,
+      window_valid: true,
+    });
+    expect(parsed.nickname).toBe("阿伟");
+    expect(parsed.remaining_quota).toBe(7);
+    expect(parsed.window_valid).toBe(true);
+  });
+
+  it("defaults incomplete data to the disconnected state", () => {
+    const parsed = WechatInstallationSchema.parse({ id: "i1" });
+    expect(parsed.status).toBe("revoked");
+    expect(parsed.nickname).toBe("");
+    expect(parsed.remaining_quota).toBe(0);
+    expect(parsed.window_valid).toBe(false);
+
+    const list = ListWechatInstallationsResponseSchema.parse({});
+    expect(list).toEqual({ installations: [], configured: false });
+  });
+
+  it("keeps unknown forward-compatible installation fields", () => {
+    const parsed = WechatInstallationSchema.parse({ id: "i1", future_field: "keep" });
+    expect((parsed as unknown as { future_field?: string }).future_field).toBe("keep");
+  });
+
+  it("falls back safely for malformed list, QR, and status responses", () => {
+    expect(
+      parseWithFallback(
+        "not json",
+        ListWechatInstallationsResponseSchema,
+        EMPTY_LIST_WECHAT_INSTALLATIONS_RESPONSE,
+        { endpoint: "GET /api/workspaces/:id/wechat/installations" },
+      ),
+    ).toEqual(EMPTY_LIST_WECHAT_INSTALLATIONS_RESPONSE);
+
+    expect(
+      parseWithFallback(42, WechatInstallationSchema, EMPTY_WECHAT_INSTALLATION, {
+        endpoint: "DELETE /api/workspaces/:id/wechat/installations/:id",
+      }),
+    ).toEqual(EMPTY_WECHAT_INSTALLATION);
+
+    expect(
+      parseWithFallback(null, WechatBindQrcodeSchema, EMPTY_WECHAT_BIND_QRCODE, {
+        endpoint: "POST /api/workspaces/:id/wechat/qrcode",
+      }),
+    ).toEqual(EMPTY_WECHAT_BIND_QRCODE);
+
+    expect(
+      parseWithFallback(null, WechatBindStatusResponseSchema, EMPTY_WECHAT_BIND_STATUS_RESPONSE, {
+        endpoint: "POST /api/workspaces/:id/wechat/qrcode/status",
+      }),
+    ).toEqual(EMPTY_WECHAT_BIND_STATUS_RESPONSE);
   });
 });
 

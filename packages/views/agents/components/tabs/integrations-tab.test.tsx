@@ -87,6 +87,13 @@ vi.mock("@multica/core/wecom", () => ({
   }),
 }));
 
+vi.mock("@multica/core/wechat", () => ({
+  wechatInstallationsOptions: () => ({
+    queryKey: ["wechat", "installations"],
+    queryFn: vi.fn(),
+  }),
+}));
+
 vi.mock("@multica/core/telegram", () => ({
   telegramInstallationsOptions: () => ({
     queryKey: ["telegram", "installations"],
@@ -160,6 +167,12 @@ vi.mock("../../../settings/components/slack-tab", () => ({
 vi.mock("../../../settings/components/wecom-tab", () => ({
   WecomAgentBindButton: ({ agentId }: { agentId: string }) => (
     <div data-testid="wecom-bind-button" data-agent-id={agentId} />
+  ),
+}));
+
+vi.mock("../../../settings/components/wechat-tab", () => ({
+  WechatAgentBindButton: ({ agentId }: { agentId: string }) => (
+    <div data-testid="wechat-bind-button" data-agent-id={agentId} />
   ),
 }));
 
@@ -552,6 +565,7 @@ describe("IntegrationsTab", () => {
     expect(screen.queryByTestId("lark-bind-button")).toBeNull();
     expect(screen.queryByTestId("slack-bind-button")).toBeNull();
     expect(screen.queryByTestId("wecom-bind-button")).toBeNull();
+    expect(screen.queryByTestId("wechat-bind-button")).toBeNull();
     expect(screen.queryByTestId("telegram-bind-button")).toBeNull();
   });
 
@@ -567,11 +581,12 @@ describe("IntegrationsTab", () => {
     expect(screen.getByTestId("dingtalk-agent-connect")).toBeTruthy();
     expect(screen.queryByTestId("slack-bind-button")).toBeNull();
     expect(screen.queryByTestId("wecom-bind-button")).toBeNull();
+    expect(screen.queryByTestId("wechat-bind-button")).toBeNull();
     expect(screen.queryByTestId("telegram-bind-button")).toBeNull();
-    // The Slack, WeCom and Telegram sections fall back to the shared members note.
+    // Slack, WeCom, WeChat and Telegram stay workspace owner/admin-only.
     expect(
       screen.getAllByText(/Only workspace owners and admins can manage this connection/i),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
   });
 
   it("renders the bind entry (not coming-soon) when installs are unavailable but the agent is already bound", () => {

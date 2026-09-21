@@ -15,6 +15,7 @@ import { larkInstallationsOptions } from "@multica/core/lark";
 import { slackInstallationsOptions } from "@multica/core/slack";
 import { dingtalkInstallationsOptions } from "@multica/core/dingtalk";
 import { wecomInstallationsOptions } from "@multica/core/wecom";
+import { wechatInstallationsOptions } from "@multica/core/wechat";
 import { telegramInstallationsOptions } from "@multica/core/telegram";
 import { vcsConnectionsOptions } from "@multica/core/vcs";
 import { useConfigStore, useFeatureEnabled } from "@multica/core/config";
@@ -28,6 +29,7 @@ import { SlackTab } from "./slack-tab";
 import { DingTalkTab } from "./dingtalk-tab";
 import { VCSTab } from "./vcs-tab";
 import { WecomTab } from "./wecom-tab";
+import { WechatTab } from "./wechat-tab";
 import { TelegramTab } from "./telegram-tab";
 import { GitHubTab } from "./github-tab";
 import { GitHubMark } from "./github-mark";
@@ -99,6 +101,11 @@ export function IntegrationsTab() {
   });
   const wecom = useQuery({
     ...wecomInstallationsOptions(wsId),
+    enabled: canView,
+    select: hasActiveInstallation,
+  });
+  const wechat = useQuery({
+    ...wechatInstallationsOptions(wsId),
     enabled: canView,
     select: hasActiveInstallation,
   });
@@ -184,6 +191,14 @@ export function IntegrationsTab() {
           icon: <IntegrationChannelIcon channel="wecom" />,
           content: <WecomTab />,
           state: wecom,
+        },
+        {
+          id: "wechat",
+          label: t(($) => $.wechat.section_title),
+          description: t(($) => $.wechat.page_description),
+          icon: <IntegrationChannelIcon channel="wechat" />,
+          content: <WechatTab />,
+          state: wechat,
         },
         {
           id: "telegram",

@@ -41,6 +41,11 @@ import type {
   WecomInstallation,
   ListWecomInstallationsResponse,
   RedeemWecomBindingTokenResponse,
+  WechatInstallation,
+  ListWechatInstallationsResponse,
+  WechatBindQrcode,
+  WechatBindStatusResponse,
+  RedeemWechatBindingTokenResponse,
   TelegramInstallation,
   ListTelegramInstallationsResponse,
   RedeemTelegramBindingTokenResponse,
@@ -3273,6 +3278,88 @@ export const EMPTY_REDEEM_TELEGRAM_BINDING_TOKEN_RESPONSE: RedeemTelegramBinding
   workspace_id: "",
   installation_id: "",
   telegram_user_id: "",
+};
+
+export const WechatInstallationSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string().default(""),
+  agent_id: z.string().default(""),
+  bot_id: z.string().default(""),
+  nickname: z.string().default(""),
+  ilink_user_id: z.string().default(""),
+  installer_user_id: z.string().default(""),
+  status: z.string().default("revoked"),
+  support_markdown: z.boolean().default(false),
+  remaining_quota: z.number().default(0),
+  window_valid: z.boolean().default(false),
+  window_expires_at: z.string().default(""),
+  last_inbound_at: z.string().default(""),
+  installed_at: z.string().default(""),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const EMPTY_WECHAT_INSTALLATION: WechatInstallation = {
+  id: "",
+  workspace_id: "",
+  agent_id: "",
+  bot_id: "",
+  nickname: "",
+  ilink_user_id: "",
+  installer_user_id: "",
+  status: "revoked",
+  support_markdown: false,
+  remaining_quota: 0,
+  window_valid: false,
+  window_expires_at: "",
+  last_inbound_at: "",
+  installed_at: "",
+  created_at: "",
+  updated_at: "",
+};
+
+export const ListWechatInstallationsResponseSchema = z.object({
+  installations: z.array(WechatInstallationSchema).default([]),
+  configured: z.boolean().default(false),
+  install_supported: z.boolean().optional(),
+}).loose();
+
+export const EMPTY_LIST_WECHAT_INSTALLATIONS_RESPONSE: ListWechatInstallationsResponse = {
+  installations: [],
+  configured: false,
+};
+
+export const WechatBindQrcodeSchema = z.object({
+  qrcode: z.string(),
+  qrcode_img_content: z.string().default(""),
+  expires_in: z.number().default(0),
+}).loose();
+
+export const EMPTY_WECHAT_BIND_QRCODE: WechatBindQrcode = {
+  qrcode: "",
+  qrcode_img_content: "",
+  expires_in: 0,
+};
+
+export const WechatBindStatusResponseSchema = z.object({
+  status: z.string().default("wait"),
+  installation: WechatInstallationSchema.optional(),
+}).loose();
+
+export const EMPTY_WECHAT_BIND_STATUS_RESPONSE: WechatBindStatusResponse = {
+  status: "wait",
+};
+
+export const RedeemWechatBindingTokenResponseSchema = z.object({
+  workspace_id: z.string().default(""),
+  installation_id: z.string().default(""),
+  wechat_user_id: z.string().default(""),
+}).loose();
+
+export const EMPTY_REDEEM_WECHAT_BINDING_TOKEN_RESPONSE: RedeemWechatBindingTokenResponse = {
+  workspace_id: "",
+  installation_id: "",
+  wechat_user_id: "",
 };
 
 // Skills. Introduced for `POST /api/skills/:id/refresh` (update a skill from

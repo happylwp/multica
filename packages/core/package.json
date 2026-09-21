@@ -129,6 +129,8 @@
     "./dingtalk/queries": "./dingtalk/queries.ts",
     "./wecom": "./wecom/index.ts",
     "./wecom/queries": "./wecom/queries.ts",
+    "./wechat": "./wechat/index.ts",
+    "./wechat/queries": "./wechat/queries.ts",
     "./telegram": "./telegram/index.ts",
     "./telegram/queries": "./telegram/queries.ts",
     "./feedback": "./feedback/index.ts",

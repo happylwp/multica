@@ -245,6 +245,15 @@ export type {
   RedeemWecomBindingTokenResponse,
 } from "./wecom";
 export type {
+  WechatInstallation,
+  ListWechatInstallationsResponse,
+  CreateWechatBindQrcodeRequest,
+  WechatBindQrcode,
+  WechatBindPhase,
+  WechatBindStatusResponse,
+  RedeemWechatBindingTokenResponse,
+} from "./wechat";
+export type {
   TelegramInstallation,
   ListTelegramInstallationsResponse,
   RegisterTelegramRequest,

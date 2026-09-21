@@ -64,6 +64,7 @@ vi.mock("./dingtalk-tab", () => ({
 }));
 vi.mock("./vcs-tab", () => ({ VCSTab: () => <div>VCS detail</div> }));
 vi.mock("./wecom-tab", () => ({ WecomTab: () => <div>WeCom detail</div> }));
+vi.mock("./wechat-tab", () => ({ WechatTab: () => <div>WeChat detail</div> }));
 vi.mock("./telegram-tab", () => ({
   TelegramTab: () => <div>Telegram detail</div>,
 }));
@@ -91,11 +92,11 @@ describe("Integration directory", () => {
       screen.getByRole("link", { name: /GitHub Connected/ }),
     ).toBeInTheDocument();
     expect(screen.queryByText("GitHub detail")).not.toBeInTheDocument();
-    const shapes = ["lark", "slack", "dingtalk", "wecom", "telegram"].map(
+    const shapes = ["lark", "slack", "dingtalk", "wecom", "wechat", "telegram"].map(
       (channel) =>
         screen.getByTestId(`integration-channel-icon-${channel}`).innerHTML,
     );
-    expect(new Set(shapes).size).toBe(5);
+    expect(new Set(shapes).size).toBe(6);
     fireEvent.click(screen.getByRole("link", { name: /GitHub Connected/ }));
     expect(state.push).toHaveBeenCalledWith(
       "/acme/settings?tab=integrations&integration=github",
