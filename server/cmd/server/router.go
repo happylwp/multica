@@ -1537,6 +1537,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/tasks/{taskId}/messages", h.ReportTaskMessages)
 		r.Get("/tasks/{taskId}/messages", h.ListTaskMessages)
 		r.Post("/tasks/{taskId}/cancel-ack", h.AckTaskCancelled)
+		r.Post("/tasks/{taskId}/steers/claim", h.ClaimCommentSteer)
+		r.Post("/tasks/{taskId}/steers/{commentId}/ack", h.AckCommentSteer)
 
 		r.Post("/workspaces/{workspaceId}/issues/gc-check", h.BatchIssueGCCheck)
 		r.Get("/issues/{issueId}/gc-check", h.GetIssueGCCheck)
@@ -1975,6 +1977,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Post("/subscribe", h.SubscribeToIssue)
 					r.Post("/unsubscribe", h.UnsubscribeFromIssue)
 					r.Post("/unsubscribe/subtree", h.UnsubscribeFromIssueSubtree)
+					r.Get("/wakeups", h.ListIssueWakeups)
+					r.Post("/wakeups", h.CreateIssueWakeup)
+					r.Put("/wakeups/{wakeupID}", h.CreateIssueWakeup)
+					r.Post("/wakeups/{wakeupID}/disable", h.DisableIssueWakeup)
+					r.Post("/wakeups/{wakeupID}/enable", h.EnableIssueWakeup)
+					r.Patch("/wakeups/{wakeupID}/instruction", h.EditIssueWakeupInstruction)
 					r.Get("/active-task", h.GetActiveTaskForIssue)
 					r.Post("/tasks/{taskId}/cancel", h.CancelTask)
 					r.Post("/rerun", h.RerunIssue)
@@ -2302,6 +2310,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// Workspace-wide agent task snapshot for presence derivation:
 			// every active task + each agent's most recent terminal task.
 			r.Get("/api/agent-task-snapshot", h.ListWorkspaceAgentTaskSnapshot)
+			r.Get("/api/issue-wakeup-summaries", h.ListWorkspaceWakeupSummaries)
+			r.Get("/api/issue-wakeups", h.ListWorkspaceWakeups)
 
 			// Independent workspace-level list backing the issues-header
 			// "agents working" chip and its assignee-id Table filter.
