@@ -22,6 +22,9 @@ const mockViewport = vi.hoisted(() => ({ isMobile: false }));
 // Counts MockContentEditor mounts. This pins the description to exactly one
 // eager editor per issue and catches stale editor reuse across issue switches.
 const contentEditorMounts = vi.hoisted(() => ({ count: 0 }));
+// Every ReadonlyContent render, by content. A comment card renders its body
+// through it, so this counts card renders without reaching into the card.
+const readonlyContentRenders = vi.hoisted(() => [] as string[]);
 const descriptionSelectionAction = vi.hoisted(() => ({ current: undefined as { label: string; onSelect: () => void } | undefined }));
 // Stable empty-attachments reference: the real store returns a shared constant
 // so the `useCommentDraftStore(s => s.getAttachments(key))` selector keeps a
@@ -167,9 +170,10 @@ vi.mock("../../editor", async () => ({
   ImageSequenceProvider: ({ children }: { children: React.ReactNode }) =>
     children,
   isPreviewable: () => false,
-  ReadonlyContent: ({ content }: { content: string }) => (
-    <div data-testid="readonly-content">{content}</div>
-  ),
+  ReadonlyContent: ({ content }: { content: string }) => {
+    readonlyContentRenders.push(content);
+    return <div data-testid="readonly-content">{content}</div>;
+  },
   ContentEditor: forwardRef(function MockContentEditor(
     {
       defaultValue,
@@ -676,6 +680,7 @@ describe("IssueDetail (shared)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     contentEditorMounts.count = 0;
+    readonlyContentRenders.length = 0;
     descriptionSelectionAction.current = undefined;
     mockViewport.isMobile = false;
     // Default: issue loads successfully
@@ -1274,6 +1279,149 @@ describe("IssueDetail (shared)", () => {
     expect(mockApiObj.listTaskMessages).toHaveBeenCalledWith(taskId);
   });
 
+  it("scrolls to and highlights the final reply from a delivered steer receipt", async () => {
+    const taskId = "4a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
+    const root: TimelineEntry = {
+      ...mockTimeline[0]!,
+      id: "steer-root",
+      parent_id: null,
+      created_at: "2026-01-16T00:00:00Z",
+    };
+    const steer: TimelineEntry = {
+      ...mockTimeline[0]!,
+      id: "steer-input",
+      parent_id: root.id,
+      content: "Also include the deployment risk",
+      created_at: "2026-01-16T00:01:00Z",
+      agent_deliveries: [
+        { agent_id: "agent-1", agent_name: "Claude Agent", task_id: taskId, status: "delivered" },
+      ],
+    };
+    const finalReply: TimelineEntry = {
+      ...mockTimeline[1]!,
+      id: "steer-final-reply",
+      parent_id: root.id,
+      source_task_id: taskId,
+      content: "Original answer with the deployment risk included",
+      created_at: "2026-01-16T00:02:00Z",
+    };
+    const laterFailure: TimelineEntry = {
+      ...mockTimeline[1]!,
+      id: "steer-later-failure",
+      parent_id: root.id,
+      source_task_id: taskId,
+      content: "The already-published task later reported a failure",
+      comment_type: "system",
+      created_at: "2026-01-16T00:03:00Z",
+    };
+    mockApiObj.listTimeline.mockResolvedValue([root, steer, finalReply, laterFailure]);
+    mockApiObj.listTasksByIssue.mockResolvedValue([{
+      id: taskId,
+      agent_id: "agent-1",
+      runtime_id: "runtime-1",
+      issue_id: "issue-1",
+      status: "completed",
+      priority: 0,
+      created_at: root.created_at,
+      started_at: root.created_at,
+      dispatched_at: root.created_at,
+      completed_at: finalReply.created_at,
+      result: { comment: finalReply.content },
+      error: null,
+      trigger_comment_id: root.id,
+      delivered_comment_ids: [root.id],
+    } as AgentTask]);
+
+    renderIssueDetail();
+    const locate = await screen.findByRole("button", { name: /View final reply/ });
+    fireEvent.click(locate);
+
+    await waitFor(() => {
+      expect(hasHighlightedCommentBackground(document.getElementById("comment-steer-final-reply"))).toBe(true);
+    });
+    expect(scrollToIndexSpy).toHaveBeenCalledWith({ index: 0, align: "start", offset: -16 });
+    expect(scrollIntoViewSpy).not.toHaveBeenCalled();
+  });
+
+  it("expands a folded reply-resolution thread before locating the delivered steer answer", async () => {
+    const taskId = "5a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
+    const root: TimelineEntry = {
+      ...mockTimeline[0]!,
+      id: "folded-steer-root",
+      parent_id: null,
+      created_at: "2026-01-16T00:00:00Z",
+      agent_deliveries: [
+        { agent_id: "agent-1", agent_name: "Claude Agent", task_id: taskId, status: "delivered" },
+      ],
+    };
+    const finalReply: TimelineEntry = {
+      ...mockTimeline[1]!,
+      id: "folded-steer-final-reply",
+      parent_id: root.id,
+      source_task_id: taskId,
+      content: "Final answer hidden behind the resolution fold",
+      created_at: "2026-01-16T00:01:00Z",
+    };
+    const resolution: TimelineEntry = {
+      ...mockTimeline[0]!,
+      id: "folded-steer-resolution",
+      parent_id: root.id,
+      content: "Resolved after the answer",
+      created_at: "2026-01-16T00:02:00Z",
+      resolved_at: "2026-01-16T00:03:00Z",
+    };
+    mockApiObj.listTimeline.mockResolvedValue([root, finalReply, resolution]);
+
+    renderIssueDetail();
+    const locate = await screen.findByRole("button", { name: /View final reply/ });
+    expect(document.getElementById(`comment-${finalReply.id}`)).toBeNull();
+
+    fireEvent.click(locate);
+
+    await waitFor(() => {
+      expect(hasHighlightedCommentBackground(document.getElementById(`comment-${finalReply.id}`))).toBe(true);
+    });
+    expect(screen.getByRole("button", { name: "Collapse" })).toBeInTheDocument();
+    expect(scrollToIndexSpy).toHaveBeenCalledWith({ index: 0, align: "start", offset: -16 });
+  });
+
+  it("locates a delivered steer answer in flat deep-link mode", async () => {
+    const taskId = "6a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
+    const root: TimelineEntry = {
+      ...mockTimeline[0]!,
+      id: "flat-steer-root",
+      parent_id: null,
+      created_at: "2026-01-16T00:00:00Z",
+      agent_deliveries: [
+        { agent_id: "agent-1", agent_name: "Claude Agent", task_id: taskId, status: "delivered" },
+      ],
+    };
+    const finalReply: TimelineEntry = {
+      ...mockTimeline[1]!,
+      id: "flat-steer-final-reply",
+      parent_id: root.id,
+      source_task_id: taskId,
+      content: "Final answer in the flat timeline",
+      created_at: "2026-01-16T00:01:00Z",
+    };
+    mockApiObj.listTimeline.mockResolvedValue([root, finalReply]);
+
+    renderIssueDetailWithHighlight(root.id);
+    const locate = await screen.findByRole("button", { name: /View final reply/ });
+    await waitFor(() => {
+      expect(hasHighlightedCommentBackground(document.getElementById(`comment-${root.id}`))).toBe(true);
+    });
+
+    scrollToIndexSpy.mockClear();
+    fireEvent.click(locate);
+
+    await waitFor(() => {
+      expect(hasHighlightedCommentBackground(document.getElementById(`comment-${finalReply.id}`))).toBe(true);
+    });
+    expect(scrollToIndexSpy).not.toHaveBeenCalled();
+    expect(scrollIntoViewSpy).not.toHaveBeenCalled();
+  });
+
   it("places one coalesced queued block after the batch's latest reply", async () => {
     const root = mockTimeline[0]!;
     const first = { ...mockTimeline[1]!, id: "queued-first", parent_id: root.id,
@@ -1543,6 +1691,24 @@ describe("IssueDetail (shared)", () => {
     });
 
     expect(screen.getByText("I can help with this")).toBeInTheDocument();
+  });
+
+  // Comment cards are memoized so page state that has nothing to do with the
+  // timeline does not re-render every comment on a long issue. Any handler the
+  // page hands to the cards must keep its identity across such renders.
+  it("does not re-render comment cards when unrelated page state changes", async () => {
+    renderIssueDetail();
+    await screen.findByText("I can help with this");
+    await screen.findByText("Details");
+
+    const commentBodies = new Set(mockTimeline.map((entry) => entry.content));
+    const cardRenders = () =>
+      readonlyContentRenders.filter((content) => commentBodies.has(content)).length;
+    const before = cardRenders();
+
+    fireEvent.click(screen.getByText("Details"));
+
+    expect(cardRenders()).toBe(before);
   });
 
   it("prefers timeline identity when the actor is absent from the member directory", async () => {
@@ -2935,6 +3101,43 @@ describe("IssueDetail (shared)", () => {
 
     const rendered = Array.from(container.querySelectorAll("[id^='comment-']")).map((el) => el.id);
     expect(rendered.indexOf("comment-midway")).toBeLessThan(rendered.indexOf("comment-run-reply"));
+  });
+
+  // MUL-7548 regression: a comment-triggered run that posts several comments
+  // used to render its latest one first — the run slot after the trigger held
+  // only the latest, and the earlier ones followed it (or stayed top-level).
+  it.each([
+    { placement: "top-level", parentId: null },
+    { placement: "in the trigger's thread", parentId: "confirm" },
+  ])("renders every comment of a run in posting order when posted $placement", async ({ parentId }) => {
+    const agentComment = (id: string, content: string, created_at: string): TimelineEntry => ({
+      type: "comment", id, actor_type: "agent", actor_id: "agent-1", content, parent_id: parentId,
+      source_task_id: "task-steps", created_at, updated_at: created_at, comment_type: "comment",
+    });
+    mockApiObj.listTimeline.mockResolvedValue([
+      {
+        type: "comment", id: "confirm", actor_type: "member", actor_id: "user-1",
+        content: "Confirmed", parent_id: null,
+        created_at: "2026-01-17T00:00:00Z", updated_at: "2026-01-17T00:00:00Z", comment_type: "comment",
+      },
+      agentComment("step2", "Step 2 done", "2026-01-17T00:10:00Z"),
+      agentComment("step3", "Step 3 done", "2026-01-17T00:20:00Z"),
+    ]);
+    mockApiObj.listTasksByIssue.mockResolvedValue([{
+      id: "task-steps", agent_id: "agent-1", runtime_id: "rt-1", issue_id: "issue-1",
+      kind: "issue", status: "running", priority: 0,
+      dispatched_at: "2026-01-17T00:00:01Z", started_at: "2026-01-17T00:00:01Z",
+      completed_at: null, result: null, error: null,
+      created_at: "2026-01-17T00:00:01Z", trigger_comment_id: "confirm", delivered_comment_ids: ["confirm"],
+    }]);
+
+    const { container } = renderIssueDetail();
+    await screen.findByText("Step 2 done");
+    await screen.findByText("Step 3 done");
+
+    const rendered = Array.from(container.querySelectorAll("[id^='comment-']")).map((el) => el.id)
+      .filter((id) => ["comment-confirm", "comment-step2", "comment-step3"].includes(id));
+    expect(rendered).toEqual(["comment-confirm", "comment-step2", "comment-step3"]);
   });
 
 });
