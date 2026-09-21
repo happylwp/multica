@@ -147,11 +147,20 @@ func (h *Handler) StartWechatQR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to start wechat QR login")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(w, http.StatusOK, wechatQRStartBody(started))
+}
+
+func wechatQRStartBody(started wechat.StartedQR) map[string]any {
+	body := map[string]any{
 		"qrcode":             started.Key,
-		"qrcode_img_content": started.ImageURL,
+		"qrcode_img_content": started.ImageContent,
+		"qrcode_url":         started.ImageURL,
 		"expires_in":         started.ExpiresIn,
-	})
+	}
+	if started.ImageError != "" {
+		body["error"] = started.ImageError
+	}
+	return body
 }
 
 // WechatQRStatusRequest is the body for POST .../wechat/qrcode/status.

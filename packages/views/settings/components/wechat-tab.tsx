@@ -45,18 +45,22 @@ const QUOTA_LIMIT = 10;
 
 export function qrcodeImageSrc(
   qr: Pick<WechatBindQrcode, "qrcode_img_content"> & {
-    qrcode_url?: string;
     qrcode_base64?: string;
   },
 ): string | null {
-  const raw = qr.qrcode_img_content || qr.qrcode_url || "";
-  if (raw) return raw;
+  const raw = qr.qrcode_img_content || "";
+  if (isAllowedQrSrc(raw)) return raw;
   if (qr.qrcode_base64) {
-    return qr.qrcode_base64.startsWith("data:")
+    const encoded = qr.qrcode_base64.startsWith("data:")
       ? qr.qrcode_base64
       : `data:image/png;base64,${qr.qrcode_base64}`;
+    if (isAllowedQrSrc(encoded)) return encoded;
   }
   return null;
+}
+
+function isAllowedQrSrc(raw: string): boolean {
+  return raw.startsWith("https:") || raw.startsWith("data:image/");
 }
 
 function isBoundStatus(status: string): boolean {
@@ -390,6 +394,7 @@ function BindQrCard({
   const qc = useQueryClient();
   const [verifyCode, setVerifyCode] = useState("");
   const [submittedVerify, setSubmittedVerify] = useState("");
+  const [imgFailed, setImgFailed] = useState(false);
   const { data } = useQuery({
     ...wechatBindStatusOptions(wsId, qr.qrcode, submittedVerify),
     enabled: !!wsId && !!qr.qrcode,
@@ -399,6 +404,10 @@ function BindQrCard({
   const boundOnce = useRef(false);
 
   useEffect(() => {
+    setImgFailed(false);
+  }, [qr.qrcode, src]);
+
+  useEffect(() => {
     if (!isBoundStatus(status) || boundOnce.current) return;
     boundOnce.current = true;
     void qc.invalidateQueries({ queryKey: wechatKeys.installations(wsId) });
@@ -406,8 +415,16 @@ function BindQrCard({
     onBound();
   }, [onBound, qc, status, t, wsId]);
 
-  const statusLabel =
-    status === "scaned" || status === "scaned_but_redirect"
+  const imageBroken = imgFailed || Boolean(qr.error);
+  const showRetry =
+    status === "expired" ||
+    status === "verify_code_blocked" ||
+    imageBroken ||
+    !src;
+
+  const statusLabel = imageBroken
+    ? t(($) => $.wechat.status_failed)
+    : status === "scaned" || status === "scaned_but_redirect"
       ? t(($) => $.wechat.status_scanned)
       : status === "need_verifycode"
         ? t(($) => $.wechat.status_need_verify)
@@ -425,19 +442,20 @@ function BindQrCard({
         <p className="text-body font-medium">{t(($) => $.wechat.qr_title)}</p>
         <p className="text-caption text-muted-foreground">{t(($) => $.wechat.qr_hint)}</p>
         <div className="flex flex-col items-center gap-3">
-          {src ? (
+          {src && !imageBroken ? (
             <img
               src={src}
               alt=""
               className="size-48 rounded-md border bg-white p-2"
               data-testid="wechat-bind-qr"
+              onError={() => setImgFailed(true)}
             />
           ) : (
             <div
               className="flex size-48 items-center justify-center rounded-md border bg-muted text-caption text-muted-foreground"
-              data-testid="wechat-bind-qr-missing"
+              data-testid={imageBroken ? "wechat-bind-qr-failed" : "wechat-bind-qr-missing"}
             >
-              {t(($) => $.wechat.qr_missing)}
+              {imageBroken ? null : t(($) => $.wechat.qr_missing)}
             </div>
           )}
           <p className="text-caption font-medium" data-testid="wechat-bind-status">
@@ -466,7 +484,7 @@ function BindQrCard({
             </div>
           </div>
         )}
-        {(status === "expired" || status === "verify_code_blocked") && (
+        {showRetry && (
           <Button
             variant="outline"
             size="sm"

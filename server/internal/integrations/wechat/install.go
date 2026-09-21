@@ -128,11 +128,15 @@ type StartQRParams struct {
 	InitiatorID pgtype.UUID
 }
 
-// StartedQR is returned once to the installer. ImageURL is the QR to render.
+// StartedQR is returned once to the installer.
+// ImageContent is a data URL for <img src>. ImageURL is the original iLink
+// URL kept for diagnostics and must not be used as the browser src.
 type StartedQR struct {
-	Key       string
-	ImageURL  string
-	ExpiresIn int
+	Key          string
+	ImageURL     string
+	ImageContent string
+	ImageError   string
+	ExpiresIn    int
 }
 
 // StartQR asks iLink for a login QR and remembers the Multica identity that
@@ -151,7 +155,25 @@ func (s *InstallService) StartQR(ctx context.Context, p StartQRParams) (StartedQ
 		CreatedAt:   time.Now(),
 	}
 	s.mu.Unlock()
-	return StartedQR{Key: qr.Key, ImageURL: qr.ImageURL, ExpiresIn: int(qrSessionTTL.Seconds())}, nil
+
+	out := StartedQR{
+		Key:       qr.Key,
+		ImageURL:  qr.ImageURL,
+		ExpiresIn: int(qrSessionTTL.Seconds()),
+	}
+	content, fetchErr := embedQRImage(ctx, s.client, qr.ImageURL)
+	if fetchErr != nil {
+		prefix, n := qrImageURLLogMeta(qr.ImageURL)
+		s.logger.WarnContext(ctx, "wechat: failed to fetch QR image",
+			"url_prefix", prefix,
+			"url_len", n,
+			"error_kind", qrImageFetchKind(fetchErr),
+		)
+		out.ImageError = "could not load qr image"
+		return out, nil
+	}
+	out.ImageContent = content
+	return out, nil
 }
 
 // PollQRParams identify the session the installer is watching.

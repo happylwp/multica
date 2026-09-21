@@ -88,3 +88,41 @@ func TestWechatInstallationResponseNeverExposesStoredCredential(t *testing.T) {
 		t.Fatalf("management response exposed stored credential: %s", payload)
 	}
 }
+
+func TestWechatQRStartBodyEmbedsDataURLNotOfficialSrc(t *testing.T) {
+	started := wechat.StartedQR{
+		Key:          "qr-key",
+		ImageURL:     "https://liteapp.weixin.qq.com/qr?key=SESSION",
+		ImageContent: "data:image/png;base64,abc",
+		ExpiresIn:    300,
+	}
+	got := wechatQRStartBody(started)
+	if got["qrcode_img_content"] != "data:image/png;base64,abc" {
+		t.Fatalf("img = %v", got["qrcode_img_content"])
+	}
+	if got["qrcode_url"] != started.ImageURL {
+		t.Fatalf("url = %v", got["qrcode_url"])
+	}
+	if _, ok := got["error"]; ok {
+		t.Fatalf("unexpected error: %+v", got)
+	}
+}
+
+func TestWechatQRStartBodyIncludesFetchError(t *testing.T) {
+	started := wechat.StartedQR{
+		Key:        "qr-key",
+		ImageURL:   "https://liteapp.weixin.qq.com/qr?key=SESSION",
+		ImageError: "could not load qr image",
+		ExpiresIn:  300,
+	}
+	got := wechatQRStartBody(started)
+	if got["qrcode_img_content"] != "" {
+		t.Fatalf("must not pass official url as src: %v", got["qrcode_img_content"])
+	}
+	if got["error"] != "could not load qr image" {
+		t.Fatalf("error = %v", got["error"])
+	}
+	if got["qrcode"] != "qr-key" {
+		t.Fatalf("session key dropped: %+v", got)
+	}
+}
