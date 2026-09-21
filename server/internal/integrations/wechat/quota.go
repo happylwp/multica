@@ -174,16 +174,81 @@ func (s *QuotaStore) NoteInbound(instID, userID, token string, at time.Time) {
 	}
 }
 
-// Hydrate restores a persisted session (restart / factory build).
+// Hydrate restores a persisted session for restart / Factory build.
+// If this (inst, user) pair already has a live session, the DB snapshot
+// must not roll back context_token or outbound timestamps: LastInbound
+// keeps the later value, outbound is the union (prefer under-sending),
+// and a non-empty live token wins.
 func (s *QuotaStore) Hydrate(instID, userID, token string, budget SessionBudget) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	live := s.getLocked(instID, userID)
-	live.budget = budget
-	live.budget.Outbound = trimOutbound(budget.Outbound, time.Now().Add(-sessionWindow))
-	if token != "" {
+	if s.sessions == nil {
+		s.sessions = make(map[storeKey]*liveSession)
+	}
+	k := s.key(instID, userID)
+	cutoff := time.Now().Add(-sessionWindow)
+	incoming := SessionBudget{
+		LastInbound: budget.LastInbound,
+		Outbound:    trimOutbound(budget.Outbound, cutoff),
+	}
+	live := s.sessions[k]
+	if live == nil {
+		n := &liveSession{budget: incoming}
+		if token != "" {
+			n.token = token
+		}
+		s.sessions[k] = n
+		return
+	}
+	if incoming.LastInbound.After(live.budget.LastInbound) {
+		live.budget.LastInbound = incoming.LastInbound
+	}
+	live.budget.Outbound = unionOutbound(live.budget.Outbound, incoming.Outbound, cutoff)
+	if live.token == "" && token != "" {
 		live.token = token
 	}
+}
+
+// unionOutbound keeps the higher per-timestamp multiplicity so a stale
+// snapshot cannot shrink the live count.
+func unionOutbound(a, b []time.Time, cutoff time.Time) []time.Time {
+	a = trimOutbound(a, cutoff)
+	b = trimOutbound(b, cutoff)
+	if len(a) == 0 {
+		return append([]time.Time(nil), b...)
+	}
+	if len(b) == 0 {
+		return a
+	}
+	maxN := make(map[int64]int, len(a)+len(b))
+	sample := make(map[int64]time.Time, len(a)+len(b))
+	tally := func(ts []time.Time) {
+		n := make(map[int64]int, len(ts))
+		for _, t := range ts {
+			k := t.UnixNano()
+			n[k]++
+			sample[k] = t
+		}
+		for k, c := range n {
+			if c > maxN[k] {
+				maxN[k] = c
+			}
+		}
+	}
+	tally(a)
+	tally(b)
+	keys := make([]int64, 0, len(maxN))
+	for k := range maxN {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	out := make([]time.Time, 0, len(a)+len(b))
+	for _, k := range keys {
+		for i := 0; i < maxN[k]; i++ {
+			out = append(out, sample[k])
+		}
+	}
+	return out
 }
 
 // Token returns the current context_token, if any. Callers must not log it.

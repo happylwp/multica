@@ -200,6 +200,15 @@ func (c *iLinkClient) do(ctx context.Context, client *http.Client, method, path 
 	if err != nil {
 		return fmt.Errorf("wechat: read %s response: %w", path, err)
 	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("wechat: %s http %d", path, resp.StatusCode)
+	}
+	var st wireStatus
+	if json.Unmarshal(payload, &st) == nil {
+		if err := apiStatusError(st.Ret, st.ErrCode, st.ErrMsg); err != nil {
+			return err
+		}
+	}
 	if out == nil {
 		return nil
 	}
@@ -207,6 +216,23 @@ func (c *iLinkClient) do(ctx context.Context, client *http.Client, method, path 
 		return fmt.Errorf("wechat: decode %s response (http %d): %w", path, resp.StatusCode, err)
 	}
 	return nil
+}
+
+type wireStatus struct {
+	Ret     int    `json:"ret"`
+	ErrCode int    `json:"errcode"`
+	ErrMsg  string `json:"errmsg"`
+}
+
+func apiStatusError(ret, errcode int, errmsg string) error {
+	if ret == 0 && errcode == 0 {
+		return nil
+	}
+	ae := &apiError{Ret: ret, ErrCode: errcode, ErrMsg: errmsg}
+	if ae.expired() {
+		return ErrSessionExpired
+	}
+	return ae
 }
 
 // QRCode is the get_bot_qrcode result. ImageURL is rendered as the QR;
@@ -276,17 +302,6 @@ type envelope struct {
 	TypingTicket         string          `json:"typing_ticket"`
 }
 
-func (c *iLinkClient) checkEnvelope(path string, env envelope) error {
-	if env.Ret == 0 && env.ErrCode == 0 {
-		return nil
-	}
-	ae := &apiError{Ret: env.Ret, ErrCode: env.ErrCode, ErrMsg: env.ErrMsg}
-	if ae.expired() {
-		return ErrSessionExpired
-	}
-	return ae
-}
-
 type getUpdatesBody struct {
 	GetUpdatesBuf string   `json:"get_updates_buf"`
 	BaseInfo      baseInfo `json:"base_info"`
@@ -302,9 +317,6 @@ func (c *iLinkClient) GetUpdates(ctx context.Context, cursor string) (envelope, 
 	if err != nil {
 		return envelope{}, err
 	}
-	if err := c.checkEnvelope("getupdates", env); err != nil {
-		return envelope{}, err
-	}
 	return env, nil
 }
 
@@ -317,7 +329,7 @@ type WeixinMessage struct {
 	ClientID     string        `json:"client_id"`
 	CreateTimeMS int64         `json:"create_time_ms"`
 	SessionID    string        `json:"session_id"`
-	GroupID      string        `json:"group_id"`
+	GroupID      string        `json:"group_id"`     // ignored: personal ClawBot is 1:1; see inboundFromMessage
 	MessageType  int           `json:"message_type"` // 1=USER 2=BOT
 	MessageState int           `json:"message_state"`
 	ItemList     []MessageItem `json:"item_list"`
@@ -362,7 +374,7 @@ type sendMessage struct {
 // before invoking this.
 func (c *iLinkClient) SendText(ctx context.Context, toUserID, contextToken, text string) error {
 	var env envelope
-	err := c.do(ctx, c.client, http.MethodPost, "ilink/bot/sendmessage", nil, sendMessageBody{
+	return c.do(ctx, c.client, http.MethodPost, "ilink/bot/sendmessage", nil, sendMessageBody{
 		Msg: sendMessage{
 			FromUserID:   "",
 			ToUserID:     toUserID,
@@ -379,10 +391,6 @@ func (c *iLinkClient) SendText(ctx context.Context, toUserID, contextToken, text
 		},
 		BaseInfo: c.baseInfo(),
 	}, true, &env)
-	if err != nil {
-		return err
-	}
-	return c.checkEnvelope("sendmessage", env)
 }
 
 type notifyBody struct {
@@ -391,16 +399,10 @@ type notifyBody struct {
 
 func (c *iLinkClient) NotifyStart(ctx context.Context) error {
 	var env envelope
-	if err := c.do(ctx, c.client, http.MethodPost, "ilink/bot/msg/notifystart", nil, notifyBody{BaseInfo: c.baseInfo()}, true, &env); err != nil {
-		return err
-	}
-	return c.checkEnvelope("notifystart", env)
+	return c.do(ctx, c.client, http.MethodPost, "ilink/bot/msg/notifystart", nil, notifyBody{BaseInfo: c.baseInfo()}, true, &env)
 }
 
 func (c *iLinkClient) NotifyStop(ctx context.Context) error {
 	var env envelope
-	if err := c.do(ctx, c.client, http.MethodPost, "ilink/bot/msg/notifystop", nil, notifyBody{BaseInfo: c.baseInfo()}, true, &env); err != nil {
-		return err
-	}
-	return c.checkEnvelope("notifystop", env)
+	return c.do(ctx, c.client, http.MethodPost, "ilink/bot/msg/notifystop", nil, notifyBody{BaseInfo: c.baseInfo()}, true, &env)
 }

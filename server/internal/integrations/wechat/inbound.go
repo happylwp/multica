@@ -27,12 +27,12 @@ func inboundFromMessage(m WeixinMessage, botID string) (channel.InboundMessage, 
 	}
 
 	text, msgType := flattenItems(m.ItemList)
+	// Official personal WeChat ClawBot (iLink) is 1:1 only. group_id is
+	// ignored so ChatID stays the sender id and matches the quota / token
+	// key used by NoteInbound and Send. If group chat is ever supported,
+	// context_token must still be keyed by from_user_id.
 	chatType := channel.ChatTypeP2P
 	chatID := m.FromUserID
-	if m.GroupID != "" {
-		chatType = channel.ChatTypeGroup
-		chatID = m.GroupID
-	}
 
 	cleaned := strings.TrimSpace(text)
 	commandText := cleaned

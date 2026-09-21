@@ -45,7 +45,7 @@ func newSender(api *iLinkClient, quota *QuotaStore, persist configPersister, enc
 
 func (s *sender) instKey() string { return util.UUIDToString(s.instID) }
 
-// Send delivers out.Text to out.ChatID (the WeChat user / group id) after
+// Send delivers out.Text to out.ChatID (the WeChat user id; 1:1 only) after
 // markdown degradation, chunking, and quota reservation. Window miss or a
 // fully spent quota is a non-retryable error — nothing is written.
 func (s *sender) Send(ctx context.Context, out channel.OutboundMessage) (channel.SendResult, error) {

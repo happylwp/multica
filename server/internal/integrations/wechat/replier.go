@@ -162,8 +162,6 @@ func (r *OutboundReplier) post(ctx context.Context, inst engine.ResolvedInstalla
 	if err != nil {
 		return fmt.Errorf("decode credentials: %w", err)
 	}
-	cfg, _ := decodeInstallConfig(row.Config)
-	hydrateQuota(r.quota, util.UUIDToString(inst.ID), cfg, r.decrypt)
 	api := newILinkClient(firstNonEmpty(creds.BaseURL, r.apiBase), creds.BotToken, r.client)
 	_, err = newSender(api, r.quota, r.persist, r.encrypt, inst.ID, creds.SupportMarkdown, r.logger).
 		Send(ctx, channel.OutboundMessage{ChatID: msg.Source.ChatID, Text: text})

@@ -98,6 +98,9 @@ func (c *wechatChannel) Connect(ctx context.Context) error {
 }
 
 func (c *wechatChannel) dispatch(ctx context.Context, m WeixinMessage) error {
+	// Quota and context_token are keyed by from_user_id. inboundFromMessage
+	// keeps ChatID on the same id (1:1), so Send / replier / issue-done
+	// look up the token that this inbound just stored.
 	if m.ContextToken != "" && m.FromUserID != "" && m.MessageType != messageTypeBot {
 		at := time.Now()
 		if m.CreateTimeMS > 0 {

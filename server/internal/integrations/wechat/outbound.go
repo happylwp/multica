@@ -170,8 +170,6 @@ func (o *Outbound) resolveTarget(ctx context.Context, e events.Event) (*outbound
 	if err != nil {
 		return nil, fmt.Errorf("decode wechat credentials: %w", err)
 	}
-	cfg, _ := decodeInstallConfig(inst.Config)
-	hydrateQuota(o.quota, util.UUIDToString(inst.ID), cfg, o.decrypt)
 
 	chatID := delivery.ChannelChatID
 	if len(delivery.Config) > 0 {

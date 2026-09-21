@@ -49,14 +49,17 @@ func TestInboundDropsBotEchoAndSelf(t *testing.T) {
 	}
 }
 
-func TestInboundGroupAndUnsupported(t *testing.T) {
+func TestInboundIgnoresGroupID(t *testing.T) {
 	m := WeixinMessage{
 		MessageID: 1, FromUserID: "u", GroupID: "g", MessageType: messageTypeUser,
 		ItemList: []MessageItem{{Type: itemTypeImage}},
 	}
 	msg, ok := inboundFromMessage(m, "bot")
-	if !ok || msg.Source.ChatType != channel.ChatTypeGroup || msg.Source.ChatID != "g" {
-		t.Fatalf("group = %+v ok=%v", msg, ok)
+	if !ok || msg.Source.ChatType != channel.ChatTypeP2P || msg.Source.ChatID != "u" {
+		t.Fatalf("1:1 key must ignore group_id: %+v ok=%v", msg, ok)
+	}
+	if msg.Source.SenderID != "u" {
+		t.Fatalf("sender = %q", msg.Source.SenderID)
 	}
 	if msg.Type != channel.MsgTypeImage {
 		t.Fatalf("type = %q", msg.Type)

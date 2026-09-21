@@ -431,6 +431,9 @@ func persistSessions(ctx context.Context, p interface {
 	})
 }
 
+// hydrateQuota seeds the process store from a persisted snapshot. Only the
+// Factory / restart path should call this; outbound Send must not, or a
+// stale DB row would roll back a live token and quota count.
 func hydrateQuota(quota *QuotaStore, instID string, cfg installConfig, decrypt Decrypter) {
 	if quota == nil || instID == "" || cfg.Sessions == nil {
 		return

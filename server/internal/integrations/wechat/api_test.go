@@ -167,3 +167,58 @@ func TestRequestErrorOmitsURL(t *testing.T) {
 		t.Fatalf("token leaked in error: %v", err)
 	}
 }
+
+func TestDoRejectsNon2xxEvenWithZeroRet(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ret": 0, "msgs": []any{}})
+	}))
+	defer srv.Close()
+	c := newILinkClient(srv.URL, "tok", srv.Client())
+	_, err := c.GetUpdates(context.Background(), "")
+	if err == nil || !strings.Contains(err.Error(), "http 401") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestDoRejectsNonZeroRet(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"ret": 1, "errcode": 42, "errmsg": "nope"})
+	}))
+	defer srv.Close()
+	c := newILinkClient(srv.URL, "tok", srv.Client())
+	_, err := c.GetUpdates(context.Background(), "")
+	var ae *apiError
+	if !errors.As(err, &ae) || ae.Ret != 1 || ae.ErrCode != 42 {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestGetQRCodeStatusDoesNotTreatUpstreamErrorAsWait(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"ret": 1, "errcode": 1001})
+	}))
+	defer srv.Close()
+	c := newILinkClient(srv.URL, "", srv.Client())
+	st, err := c.GetQRCodeStatus(context.Background(), "qr", "")
+	if err == nil || st.Status == QRStatusWait {
+		t.Fatalf("upstream error must not become wait: st=%+v err=%v", st, err)
+	}
+	var ae *apiError
+	if !errors.As(err, &ae) || ae.ErrCode != 1001 {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestGetBotQRCodeRejectsHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"ret":0,"qrcode":"should-not-use"}`))
+	}))
+	defer srv.Close()
+	c := newILinkClient(srv.URL, "", srv.Client())
+	qr, err := c.GetBotQRCode(context.Background())
+	if err == nil || qr.Key != "" || !strings.Contains(err.Error(), "http 502") {
+		t.Fatalf("qr=%+v err=%v", qr, err)
+	}
+}

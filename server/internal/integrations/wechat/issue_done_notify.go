@@ -164,8 +164,6 @@ func (n *IssueDoneNotifier) notifyMember(ctx context.Context, wsID pgtype.UUID, 
 	if err != nil {
 		return err
 	}
-	cfg, _ := decodeInstallConfig(inst.Config)
-	hydrateQuota(n.quota, util.UUIDToString(inst.ID), cfg, n.decrypt)
 
 	instKey := util.UUIDToString(inst.ID)
 	chatID := binding.ChannelUserID

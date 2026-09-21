@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -86,5 +87,92 @@ func TestSendDegradesWhenChunksExceedRemaining(t *testing.T) {
 	}
 	if len(bodies) != 1 {
 		t.Fatalf("expected one degraded send, got %d", len(bodies))
+	}
+}
+
+func TestSendConcurrentReplyAndIssueDoneKeepsLiveTokenAndQuota(t *testing.T) {
+	var (
+		mu     sync.Mutex
+		tokens []string
+		sends  int
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/sendmessage") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ret": 0})
+			return
+		}
+		var env map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+			t.Error(err)
+			return
+		}
+		msg := env["msg"].(map[string]any)
+		tok, _ := msg["context_token"].(string)
+		mu.Lock()
+		tokens = append(tokens, tok)
+		sends++
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"ret": 0})
+	}))
+	defer srv.Close()
+
+	quota := NewQuotaStore()
+	inst := wechatTestUUID(3)
+	key := util.UUIDToString(inst)
+	user := "wxid_a"
+	now := time.Now()
+	staleBudget := SessionBudget{LastInbound: now.Add(-time.Minute)}
+	quota.Hydrate(key, user, "stale-token", staleBudget)
+
+	// Inbound refreshes the token; persist has not run yet (Connect order).
+	quota.NoteInbound(key, user, "fresh-token", now)
+
+	ctx := context.Background()
+	reply := newSender(newILinkClient(srv.URL, "tok", srv.Client()), quota, nil, nil, inst, false, testLogger())
+	issueDone := newSender(newILinkClient(srv.URL, "tok", srv.Client()), quota, nil, nil, inst, false, testLogger())
+	out := channel.OutboundMessage{ChatID: user, Text: "x"}
+
+	var wg sync.WaitGroup
+	var admMu sync.Mutex
+	admitted := 0
+	run := func(s *sender, n int) {
+		for i := 0; i < n; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// Stale hydrate racing like the old outbound Send path.
+				quota.Hydrate(key, user, "stale-token", staleBudget)
+				_, err := s.Send(ctx, out)
+				if err == nil {
+					admMu.Lock()
+					admitted++
+					admMu.Unlock()
+				}
+			}()
+		}
+	}
+	run(reply, 8)
+	run(issueDone, 8)
+	wg.Wait()
+
+	if admitted != MaxOutboundPerWindow {
+		t.Fatalf("admitted %d, want %d", admitted, MaxOutboundPerWindow)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if sends != MaxOutboundPerWindow {
+		t.Fatalf("wire sends = %d", sends)
+	}
+	for _, tok := range tokens {
+		if tok != "fresh-token" {
+			t.Fatalf("send used %q, want fresh-token", tok)
+		}
+	}
+	got, ok := quota.Token(key, user)
+	if !ok || got != "fresh-token" {
+		t.Fatalf("store token = %q ok=%v", got, ok)
+	}
+	if quota.Remaining(key, user, time.Now()) != 0 {
+		t.Fatalf("remaining = %d", quota.Remaining(key, user, time.Now()))
 	}
 }

@@ -105,3 +105,40 @@ func TestQuotaStoreDoesNotBypassExpiredWindow(t *testing.T) {
 		t.Fatalf("reserve on expired hydrate: n=%d err=%v", n, err)
 	}
 }
+
+func TestHydrateDoesNotRollBackLiveSession(t *testing.T) {
+	s := NewQuotaStore()
+	now := time.Now()
+	s.NoteInbound("inst", "user", "live-token", now)
+	if n, err := s.TryReserve("inst", "user", now, 3); err != nil || n != 3 {
+		t.Fatalf("seed reserve: n=%d err=%v", n, err)
+	}
+
+	staleInbound := now.Add(-time.Hour)
+	s.Hydrate("inst", "user", "stale-token", SessionBudget{
+		LastInbound: staleInbound,
+		Outbound:    []time.Time{now.Add(-2 * time.Minute), now.Add(-time.Minute)},
+	})
+
+	tok, ok := s.Token("inst", "user")
+	if !ok || tok != "live-token" {
+		t.Fatalf("live token rolled back to %q ok=%v", tok, ok)
+	}
+	snap := s.Snapshot("inst", "user")
+	if !snap.LastInbound.Equal(now) {
+		t.Fatalf("LastInbound rolled back to %v", snap.LastInbound)
+	}
+	// Union: 3 live + 2 snapshot distinct timestamps → remaining 5.
+	if rem := snap.Remaining(now); rem != MaxOutboundPerWindow-5 {
+		t.Fatalf("union remaining = %d, outbound=%v", rem, snap.Outbound)
+	}
+
+	empty := NewQuotaStore()
+	empty.Hydrate("inst", "user", "boot-token", SessionBudget{LastInbound: now, Outbound: []time.Time{now}})
+	if tok, ok := empty.Token("inst", "user"); !ok || tok != "boot-token" {
+		t.Fatal("empty store must accept the snapshot on first hydrate")
+	}
+	if empty.Remaining("inst", "user", now) != MaxOutboundPerWindow-1 {
+		t.Fatalf("first hydrate remaining = %d", empty.Remaining("inst", "user", now))
+	}
+}
