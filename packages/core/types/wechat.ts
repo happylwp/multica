@@ -37,11 +37,15 @@ export interface CreateWechatBindQrcodeRequest {
 }
 
 /** POST /wechat/qrcode response. `qrcode` is the session key; the image
- * lives in `qrcode_img_content` (URL or data URL). */
+ * lives in `qrcode_img_content` as a data URL. `qrcode_url` is the original
+ * iLink URL (diagnostics only). `error` is set when the server could not
+ * embed the image. */
 export interface WechatBindQrcode {
   qrcode: string;
   qrcode_img_content: string;
+  qrcode_url?: string;
   expires_in: number;
+  error?: string;
 }
 
 /**

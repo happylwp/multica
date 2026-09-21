@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGetUpdatesUnpacksMessagesAndCursor(t *testing.T) {
@@ -220,5 +221,29 @@ func TestGetBotQRCodeRejectsHTTPError(t *testing.T) {
 	qr, err := c.GetBotQRCode(context.Background())
 	if err == nil || qr.Key != "" || !strings.Contains(err.Error(), "http 502") {
 		t.Fatalf("qr=%+v err=%v", qr, err)
+	}
+}
+
+func TestNewILinkClientQRStatusTimeout(t *testing.T) {
+	c := newILinkClient("", "", &http.Client{Timeout: 15 * time.Second})
+	if c.qrStatus == nil || c.qrStatus.Timeout < 60*time.Second {
+		t.Fatalf("qr status timeout = %v", c.qrStatus)
+	}
+	if c.client.Timeout != 15*time.Second {
+		t.Fatalf("short client mutated: %s", c.client.Timeout)
+	}
+}
+
+func TestGetQRCodeStatusTimeoutReturnsWait(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": QRStatusScanned})
+	}))
+	defer srv.Close()
+	c := newILinkClient(srv.URL, "", srv.Client())
+	c.qrStatus.Timeout = 30 * time.Millisecond
+	st, err := c.GetQRCodeStatus(context.Background(), "live-key", "")
+	if err != nil || st.Status != QRStatusWait {
+		t.Fatalf("timeout must be wait: st=%+v err=%v", st, err)
 	}
 }

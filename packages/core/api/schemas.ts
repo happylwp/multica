@@ -3348,7 +3348,9 @@ export const EMPTY_LIST_WECHAT_INSTALLATIONS_RESPONSE: ListWechatInstallationsRe
 export const WechatBindQrcodeSchema = z.object({
   qrcode: z.string(),
   qrcode_img_content: z.string().default(""),
+  qrcode_url: z.string().optional().default(""),
   expires_in: z.number().default(0),
+  error: z.string().optional(),
 }).loose();
 
 export const EMPTY_WECHAT_BIND_QRCODE: WechatBindQrcode = {

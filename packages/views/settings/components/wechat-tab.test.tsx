@@ -2,7 +2,7 @@
 
 import { type ReactNode } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
@@ -134,10 +134,19 @@ describe("qrcodeImageSrc", () => {
     expect(qrcodeImageSrc({ qrcode_img_content: "https://qr.example/a" })).toBe(
       "https://qr.example/a",
     );
+    expect(qrcodeImageSrc({ qrcode_img_content: "data:image/png;base64,abc" })).toBe(
+      "data:image/png;base64,abc",
+    );
     expect(qrcodeImageSrc({ qrcode_img_content: "", qrcode_base64: "abc" })).toBe(
       "data:image/png;base64,abc",
     );
     expect(qrcodeImageSrc({ qrcode_img_content: "" })).toBeNull();
+  });
+
+  it("rejects non https / data:image sources", () => {
+    expect(qrcodeImageSrc({ qrcode_img_content: "javascript:alert(1)" })).toBeNull();
+    expect(qrcodeImageSrc({ qrcode_img_content: "http://qr.example/a" })).toBeNull();
+    expect(qrcodeImageSrc({ qrcode_img_content: "data:text/html,hi" })).toBeNull();
   });
 });
 
@@ -153,7 +162,7 @@ describe("WechatTab", () => {
   it("shows the empty state and starts a QR bind after picking an agent", async () => {
     mockCreateQr.mockResolvedValue({
       qrcode: "sess-1",
-      qrcode_img_content: "https://qr.example/bind",
+      qrcode_img_content: "data:image/png;base64,bind",
       expires_in: 120,
     });
     renderUI(<WechatTab />);
@@ -165,16 +174,58 @@ describe("WechatTab", () => {
     );
     expect(await screen.findByTestId("wechat-bind-qr")).toHaveAttribute(
       "src",
-      "https://qr.example/bind",
+      "data:image/png;base64,bind",
     );
     expect(screen.getByTestId("wechat-bind-status").textContent).toMatch(/Waiting for scan/i);
+  });
+
+  it("shows a failed state and regenerates when the QR image errors", async () => {
+    mockCreateQr
+      .mockResolvedValueOnce({
+        qrcode: "sess-1",
+        qrcode_img_content: "data:image/png;base64,bind",
+        expires_in: 120,
+      })
+      .mockResolvedValueOnce({
+        qrcode: "sess-2",
+        qrcode_img_content: "data:image/png;base64,abc",
+        expires_in: 120,
+      });
+    renderUI(<WechatTab />);
+    await userEvent.selectOptions(screen.getByTestId("wechat-agent-pick"), "agent-1");
+    await userEvent.click(screen.getByTestId("wechat-bind-start"));
+    const img = await screen.findByTestId("wechat-bind-qr");
+    fireEvent.error(img);
+    expect(await screen.findByTestId("wechat-bind-qr-failed")).toBeTruthy();
+    expect(screen.getByTestId("wechat-bind-status").textContent).toMatch(/Binding failed/i);
+    await userEvent.click(screen.getByTestId("wechat-qr-refresh"));
+    await waitFor(() => expect(mockCreateQr).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTestId("wechat-bind-qr")).toHaveAttribute(
+      "src",
+      "data:image/png;base64,abc",
+    );
+  });
+
+  it("shows the failed state when the server could not embed the QR image", async () => {
+    mockCreateQr.mockResolvedValue({
+      qrcode: "sess-err",
+      qrcode_img_content: "",
+      error: "could not load qr image",
+      expires_in: 120,
+    });
+    renderUI(<WechatTab />);
+    await userEvent.selectOptions(screen.getByTestId("wechat-agent-pick"), "agent-1");
+    await userEvent.click(screen.getByTestId("wechat-bind-start"));
+    expect(await screen.findByTestId("wechat-bind-qr-failed")).toBeTruthy();
+    expect(screen.getByTestId("wechat-bind-status").textContent).toMatch(/Binding failed/i);
+    expect(screen.getByTestId("wechat-qr-refresh")).toBeTruthy();
   });
 
   it("polls scanned status copy while the QR session is open", async () => {
     bindStatusRef.current = { status: "scaned" };
     mockCreateQr.mockResolvedValue({
       qrcode: "sess-2",
-      qrcode_img_content: "https://qr.example/bind",
+      qrcode_img_content: "data:image/png;base64,bind",
       expires_in: 120,
     });
     renderUI(<WechatTab />);
@@ -229,7 +280,7 @@ describe("WechatAgentBindButton", () => {
   it("opens the QR dialog and requests a session for that agent", async () => {
     mockCreateQr.mockResolvedValue({
       qrcode: "sess-a",
-      qrcode_img_content: "https://qr.example/agent",
+      qrcode_img_content: "data:image/png;base64,agent",
       expires_in: 120,
     });
     renderUI(<WechatAgentBindButton agentId="agent-1" agentName="Bot" />);
