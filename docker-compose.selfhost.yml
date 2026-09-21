@@ -213,6 +213,11 @@ services:
       # (bot_token_encrypted), so this single deployment-wide key is all
       # the operator needs to set here.
       MULTICA_TELEGRAM_SECRET_KEY: ${MULTICA_TELEGRAM_SECRET_KEY:-}
+      # WeChat / iLink bot integration. MULTICA_WECHAT_SECRET_KEY is the
+      # opt-in: unset = integration disabled. It encrypts each installation's
+      # iLink bot token and per-conversation context_token at rest, so this
+      # single deployment-wide key is all the operator needs to set here.
+      MULTICA_WECHAT_SECRET_KEY: ${MULTICA_WECHAT_SECRET_KEY:-}
     restart: unless-stopped
 
   frontend:
