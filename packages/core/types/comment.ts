@@ -47,19 +47,6 @@ export interface Comment {
   // Per-target result of every explicit @agent / @squad mention in this comment
   // (MUL-4525 §2). Present only on create/edit responses; older servers omit it.
   trigger_outcomes?: CommentTriggerOutcome[];
-  agent_deliveries?: CommentAgentDelivery[];
-}
-
-export interface CommentAgentDelivery {
-  agent_id: string;
-  agent_name: string;
-  /**
-   * Run associated with this receipt. Older servers omit it and receipts
-   * created directly as follow-up have no task, so accept both forms.
-   */
-  task_id?: string | null;
-  status: "pending" | "delivered" | "follow_up" | string;
-  delivered_at?: string | null;
 }
 
 // The domain result of one explicitly-mentioned trigger target. Success-shaped
@@ -69,7 +56,6 @@ export type CommentTriggerStatus =
   | "queued"
   | "coalesced"
   | "deferred"
-  | "steering"
   | "blocked";
 
 export interface CommentTriggerOutcome {
@@ -90,7 +76,6 @@ export interface CommentTriggerPreviewAgent {
   avatar_url?: string;
   source: CommentTriggerSource | string;
   reason: string;
-  delivery?: "current_run" | "follow_up" | string;
 }
 
 export interface CommentTriggerPreview {
