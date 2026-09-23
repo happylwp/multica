@@ -10,6 +10,7 @@ import type {
   CreateIssueRequest,
   MoveIssueRequest,
   UpdateIssueRequest,
+  IssueDuplicates,
   GroupedIssuesResponse,
   ListIssuesResponse,
   SearchIssuesResponse,
@@ -263,6 +264,7 @@ import {
   SendChatMessageResponseSchema,
   StartMikaOnboardingResponseSchema,
   ChildIssuesResponseSchema,
+  IssueDuplicatesResponseSchema,
   ChildIssueProgressResponseSchema,
   CommentsListSchema,
   CommentTriggerPreviewSchema,
@@ -1461,6 +1463,16 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  async listIssueDuplicates(id: string): Promise<IssueDuplicates> {
+    const raw = await this.fetch<unknown>(`/api/issues/${id}/duplicates`);
+    return parseWithFallback(
+      raw,
+      IssueDuplicatesResponseSchema,
+      { duplicate_of: null, duplicates: [] },
+      { endpoint: "GET /api/issues/:id/duplicates" },
+    );
   }
 
   async listChildIssues(id: string): Promise<{ issues: Issue[] }> {
@@ -2687,6 +2699,24 @@ export class ApiClient {
     const raw = await this.fetch<unknown>(`/api/issues/${issueId}/task-runs`);
     return parseWithFallback<AgentTask[]>(raw, AgentTaskListSchema, [], {
       endpoint: "GET /api/issues/:id/task-runs",
+    });
+  }
+
+  async createTaskSupplement(issueId: string, taskId: string, content: string, clientRequestId: string): Promise<Comment> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/tasks/${taskId}/supplements`, {
+      method: "POST",
+      body: JSON.stringify({ content, client_request_id: clientRequestId }),
+    });
+    const comment = parseWithFallback<Comment>(raw, CommentSchema, EMPTY_COMMENT, {
+      endpoint: "POST /api/issues/:id/tasks/:taskId/supplements",
+    });
+    if (!comment.id) throw new Error("Invalid additional-message response");
+    return comment;
+  }
+
+  async retryTaskSupplement(issueId: string, taskId: string, commentId: string): Promise<void> {
+    await this.fetch(`/api/issues/${issueId}/tasks/${taskId}/supplements/${commentId}/retry`, {
+      method: "POST",
     });
   }
 

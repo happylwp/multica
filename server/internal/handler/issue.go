@@ -67,8 +67,13 @@ type IssueResponse struct {
 	CreatorType   string  `json:"creator_type"`
 	CreatorID     string  `json:"creator_id"`
 	ParentIssueID *string `json:"parent_issue_id"`
-	ProjectID     *string `json:"project_id"`
-	Position      float64 `json:"position"`
+	// DuplicateOf is the original this issue duplicates (MUL-7349), set only
+	// while the mark counts: the issue is cancelled and the original still
+	// exists. newStatusCategoryFiller resolves it from duplicateOfIssueID;
+	// an endpoint that skips the filler emits null rather than a bare pointer.
+	DuplicateOf *IssueRefResponse `json:"duplicate_of"`
+	ProjectID   *string           `json:"project_id"`
+	Position    float64           `json:"position"`
 	// Stage groups sub-issues under the same parent into ordered barrier
 	// groups (null = unstaged). See issue_child_done.go for how a closed
 	// stage gates the child-done -> parent wake.
@@ -100,6 +105,17 @@ type IssueResponse struct {
 	// SourceContext is detail-only. List, board, search, and children responses
 	// deliberately omit the potentially large immutable snapshot.
 	SourceContext *sourceContextDetailResponse `json:"source_context,omitempty"`
+	// duplicateOfIssueID is the raw mark, kept off the wire; see DuplicateOf.
+	duplicateOfIssueID pgtype.UUID
+}
+
+// IssueRefResponse names another issue inside a response: enough to render
+// a link and its status without a second request.
+type IssueRefResponse struct {
+	ID         string `json:"id"`
+	Identifier string `json:"identifier"`
+	Title      string `json:"title"`
+	Status     string `json:"status"`
 }
 
 // validIssuePriorities mirrors the CHECK constraint on the issue table. Write
@@ -269,6 +285,11 @@ func (h *Handler) updateIssueWithStatusGuard(ctx context.Context, workspaceID pg
 	var issue db.Issue
 	var cancelledWakeups []db.AgentTaskQueue
 	err := h.runWithIssueStatusGuard(ctx, workspaceID, statusKey, func(q *db.Queries) error {
+		if params.DuplicateOfIssueID.Valid {
+			if err := lockAndCheckDuplicateMark(ctx, q, workspaceID, params.ID, params.DuplicateOfIssueID); err != nil {
+				return err
+			}
+		}
 		var innerErr error
 		issue, cancelledWakeups, innerErr = updateIssueStoppingWakeups(ctx, q, params)
 		return innerErr
@@ -346,8 +367,15 @@ func (h *Handler) fillStatusCategories(ctx context.Context, wsID pgtype.UUID, re
 // this exists to avoid. (MUL-6243)
 func (h *Handler) newStatusCategoryFiller(ctx context.Context, wsID pgtype.UUID) func(*IssueResponse) {
 	resolver := issuestatus.NewResolver(wsID)
+	originals := map[pgtype.UUID]*IssueRefResponse{}
 	return func(resp *IssueResponse) {
-		if resp == nil || resp.StatusCategory != "" {
+		if resp == nil {
+			return
+		}
+		// Every response that resolves its status also resolves its duplicate
+		// mark, so the two never disagree about which endpoints carry them.
+		h.fillDuplicateOf(ctx, wsID, resp, originals)
+		if resp.StatusCategory != "" {
 			return
 		}
 		resp.StatusCategory = issuestatus.WireCategory(resp.Status, resolver.Category(ctx, h.Queries, resp.Status))
@@ -363,6 +391,53 @@ func (h *Handler) fillStatusCategory(ctx context.Context, wsID pgtype.UUID, resp
 	h.newStatusCategoryFiller(ctx, wsID)(resp)
 }
 
+// duplicateOfPointer keeps a duplicate mark only while the issue is
+// cancelled. Whether the original still exists is checked when the response
+// is filled (fillDuplicateOf), so a pointer an older server left behind
+// never surfaces. Same rule as IssueHasDuplicates in issue.sql.
+func duplicateOfPointer(status string, id pgtype.UUID) pgtype.UUID {
+	if status != issuestatus.Cancelled {
+		return pgtype.UUID{}
+	}
+	return id
+}
+
+// fillDuplicateOf resolves a duplicate mark to its original (MUL-7349): a
+// primary-key read per distinct original, memoised in memo across one
+// response so many duplicates of one issue cost one read. A missing original
+// (memoised as nil) leaves DuplicateOf unset.
+func (h *Handler) fillDuplicateOf(ctx context.Context, wsID pgtype.UUID, resp *IssueResponse, memo map[pgtype.UUID]*IssueRefResponse) {
+	if !resp.duplicateOfIssueID.Valid {
+		return
+	}
+	ref, seen := memo[resp.duplicateOfIssueID]
+	if !seen {
+		row, err := h.Queries.GetIssueRefInWorkspace(ctx, db.GetIssueRefInWorkspaceParams{
+			ID:          resp.duplicateOfIssueID,
+			WorkspaceID: wsID,
+		})
+		switch {
+		case err == nil:
+			// The response already rendered its own identifier with the
+			// workspace prefix; the original shares it.
+			prefix := strings.TrimSuffix(resp.Identifier, "-"+strconv.Itoa(int(resp.Number)))
+			ref = &IssueRefResponse{
+				ID:         uuidToString(row.ID),
+				Identifier: prefix + "-" + strconv.Itoa(int(row.Number)),
+				Title:      row.Title,
+				Status:     row.Status,
+			}
+		case !isNotFound(err):
+			slog.Warn("resolve duplicate original failed", "error", err, "issue_id", resp.ID)
+		}
+		memo[resp.duplicateOfIssueID] = ref
+	}
+	if ref != nil {
+		copied := *ref
+		resp.DuplicateOf = &copied
+	}
+}
+
 func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	// Built-ins map to public categories without a catalog lookup. A custom
@@ -372,31 +447,32 @@ func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 		statusCategory = i.Status
 	}
 	return IssueResponse{
-		ID:             uuidToString(i.ID),
-		WorkspaceID:    uuidToString(i.WorkspaceID),
-		Number:         i.Number,
-		Identifier:     identifier,
-		Title:          i.Title,
-		Description:    textToPtr(i.Description),
-		Status:         i.Status,
-		StatusCategory: statusCategory,
-		Priority:       i.Priority,
-		AssigneeType:   textToPtr(i.AssigneeType),
-		AssigneeID:     uuidToPtr(i.AssigneeID),
-		CreatorType:    i.CreatorType,
-		CreatorID:      uuidToString(i.CreatorID),
-		ParentIssueID:  uuidToPtr(i.ParentIssueID),
-		ProjectID:      uuidToPtr(i.ProjectID),
-		Position:       i.Position,
-		Stage:          int4ToPtr(i.Stage),
-		StartDate:      dateToPtr(i.StartDate),
-		DueDate:        dateToPtr(i.DueDate),
-		CreatedAt:      timestampToString(i.CreatedAt),
-		UpdatedAt:      timestampToString(i.UpdatedAt),
-		Revision:       i.Revision,
-		LastActivityAt: timestampToNanoPtr(i.LastActivityAt),
-		Metadata:       parseIssueMetadata(i.Metadata),
-		Properties:     parseIssueProperties(i.Properties),
+		ID:                 uuidToString(i.ID),
+		WorkspaceID:        uuidToString(i.WorkspaceID),
+		Number:             i.Number,
+		Identifier:         identifier,
+		Title:              i.Title,
+		Description:        textToPtr(i.Description),
+		Status:             i.Status,
+		StatusCategory:     statusCategory,
+		Priority:           i.Priority,
+		AssigneeType:       textToPtr(i.AssigneeType),
+		AssigneeID:         uuidToPtr(i.AssigneeID),
+		CreatorType:        i.CreatorType,
+		CreatorID:          uuidToString(i.CreatorID),
+		ParentIssueID:      uuidToPtr(i.ParentIssueID),
+		duplicateOfIssueID: duplicateOfPointer(i.Status, i.DuplicateOfIssueID),
+		ProjectID:          uuidToPtr(i.ProjectID),
+		Position:           i.Position,
+		Stage:              int4ToPtr(i.Stage),
+		StartDate:          dateToPtr(i.StartDate),
+		DueDate:            dateToPtr(i.DueDate),
+		CreatedAt:          timestampToString(i.CreatedAt),
+		UpdatedAt:          timestampToString(i.UpdatedAt),
+		Revision:           i.Revision,
+		LastActivityAt:     timestampToNanoPtr(i.LastActivityAt),
+		Metadata:           parseIssueMetadata(i.Metadata),
+		Properties:         parseIssueProperties(i.Properties),
 	}
 }
 
@@ -409,31 +485,32 @@ func issueListRowToResponse(i db.ListIssuesRow, issuePrefix string) IssueRespons
 	}
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:             uuidToString(i.ID),
-		WorkspaceID:    uuidToString(i.WorkspaceID),
-		Number:         i.Number,
-		Identifier:     identifier,
-		Title:          i.Title,
-		Description:    textToPtr(i.Description),
-		Status:         i.Status,
-		StatusCategory: statusCategory,
-		Priority:       i.Priority,
-		AssigneeType:   textToPtr(i.AssigneeType),
-		AssigneeID:     uuidToPtr(i.AssigneeID),
-		CreatorType:    i.CreatorType,
-		CreatorID:      uuidToString(i.CreatorID),
-		ParentIssueID:  uuidToPtr(i.ParentIssueID),
-		ProjectID:      uuidToPtr(i.ProjectID),
-		Position:       i.Position,
-		Stage:          int4ToPtr(i.Stage),
-		StartDate:      dateToPtr(i.StartDate),
-		DueDate:        dateToPtr(i.DueDate),
-		CreatedAt:      timestampToString(i.CreatedAt),
-		UpdatedAt:      timestampToString(i.UpdatedAt),
-		Revision:       i.Revision,
-		LastActivityAt: timestampToNanoPtr(i.LastActivityAt),
-		Metadata:       parseIssueMetadata(i.Metadata),
-		Properties:     parseIssueProperties(i.Properties),
+		ID:                 uuidToString(i.ID),
+		WorkspaceID:        uuidToString(i.WorkspaceID),
+		Number:             i.Number,
+		Identifier:         identifier,
+		Title:              i.Title,
+		Description:        textToPtr(i.Description),
+		Status:             i.Status,
+		StatusCategory:     statusCategory,
+		Priority:           i.Priority,
+		AssigneeType:       textToPtr(i.AssigneeType),
+		AssigneeID:         uuidToPtr(i.AssigneeID),
+		CreatorType:        i.CreatorType,
+		CreatorID:          uuidToString(i.CreatorID),
+		ParentIssueID:      uuidToPtr(i.ParentIssueID),
+		duplicateOfIssueID: duplicateOfPointer(i.Status, i.DuplicateOfIssueID),
+		ProjectID:          uuidToPtr(i.ProjectID),
+		Position:           i.Position,
+		Stage:              int4ToPtr(i.Stage),
+		StartDate:          dateToPtr(i.StartDate),
+		DueDate:            dateToPtr(i.DueDate),
+		CreatedAt:          timestampToString(i.CreatedAt),
+		UpdatedAt:          timestampToString(i.UpdatedAt),
+		Revision:           i.Revision,
+		LastActivityAt:     timestampToNanoPtr(i.LastActivityAt),
+		Metadata:           parseIssueMetadata(i.Metadata),
+		Properties:         parseIssueProperties(i.Properties),
 	}
 }
 
@@ -478,31 +555,32 @@ func openIssueRowToResponse(i db.ListOpenIssuesRow, issuePrefix string) IssueRes
 	}
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:             uuidToString(i.ID),
-		WorkspaceID:    uuidToString(i.WorkspaceID),
-		Number:         i.Number,
-		Identifier:     identifier,
-		Title:          i.Title,
-		Description:    textToPtr(i.Description),
-		Status:         i.Status,
-		StatusCategory: statusCategory,
-		Priority:       i.Priority,
-		AssigneeType:   textToPtr(i.AssigneeType),
-		AssigneeID:     uuidToPtr(i.AssigneeID),
-		CreatorType:    i.CreatorType,
-		CreatorID:      uuidToString(i.CreatorID),
-		ParentIssueID:  uuidToPtr(i.ParentIssueID),
-		ProjectID:      uuidToPtr(i.ProjectID),
-		Position:       i.Position,
-		Stage:          int4ToPtr(i.Stage),
-		StartDate:      dateToPtr(i.StartDate),
-		DueDate:        dateToPtr(i.DueDate),
-		CreatedAt:      timestampToString(i.CreatedAt),
-		UpdatedAt:      timestampToString(i.UpdatedAt),
-		Revision:       i.Revision,
-		LastActivityAt: timestampToNanoPtr(i.LastActivityAt),
-		Metadata:       parseIssueMetadata(i.Metadata),
-		Properties:     parseIssueProperties(i.Properties),
+		ID:                 uuidToString(i.ID),
+		WorkspaceID:        uuidToString(i.WorkspaceID),
+		Number:             i.Number,
+		Identifier:         identifier,
+		Title:              i.Title,
+		Description:        textToPtr(i.Description),
+		Status:             i.Status,
+		StatusCategory:     statusCategory,
+		Priority:           i.Priority,
+		AssigneeType:       textToPtr(i.AssigneeType),
+		AssigneeID:         uuidToPtr(i.AssigneeID),
+		CreatorType:        i.CreatorType,
+		CreatorID:          uuidToString(i.CreatorID),
+		ParentIssueID:      uuidToPtr(i.ParentIssueID),
+		duplicateOfIssueID: duplicateOfPointer(i.Status, i.DuplicateOfIssueID),
+		ProjectID:          uuidToPtr(i.ProjectID),
+		Position:           i.Position,
+		Stage:              int4ToPtr(i.Stage),
+		StartDate:          dateToPtr(i.StartDate),
+		DueDate:            dateToPtr(i.DueDate),
+		CreatedAt:          timestampToString(i.CreatedAt),
+		UpdatedAt:          timestampToString(i.UpdatedAt),
+		Revision:           i.Revision,
+		LastActivityAt:     timestampToNanoPtr(i.LastActivityAt),
+		Metadata:           parseIssueMetadata(i.Metadata),
+		Properties:         parseIssueProperties(i.Properties),
 	}
 }
 
@@ -985,7 +1063,7 @@ func buildSearchQuery(phrase string, terms []string, queryNum int, hasNum bool, 
 		i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
 		i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position,
 		i.start_date, i.due_date, i.created_at, i.updated_at, i.last_activity_at, i.number, i.project_id,
-		i.revision,
+		i.revision, i.duplicate_of_issue_id,
 		pc.match_source,
 		COALESCE(c.content, '') AS matched_comment_content
 	FROM page_candidates pc
@@ -1081,6 +1159,7 @@ func (h *Handler) SearchIssues(w http.ResponseWriter, r *http.Request) {
 				&sr.issue.Number,
 				&sr.issue.ProjectID,
 				&sr.issue.Revision,
+				&sr.issue.DuplicateOfIssueID,
 				&sr.matchSource,
 				&sr.matchedCommentContent,
 			); err != nil {
@@ -1628,7 +1707,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	query := fmt.Sprintf(`SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
        i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.last_activity_at, i.number, i.project_id, i.metadata, i.stage, i.properties,
-	   i.revision
+	   i.revision, i.duplicate_of_issue_id
 FROM issue i
 WHERE %s
 ORDER BY %s
@@ -1669,6 +1748,7 @@ LIMIT %s OFFSET %s`, whereSql, orderBy, limitRef, offsetRef)
 			&row.Stage,
 			&row.Properties,
 			&row.Revision,
+			&row.DuplicateOfIssueID,
 		); err != nil {
 			slog.Warn("ListIssues scan failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to list issues")
@@ -2227,7 +2307,7 @@ WITH ranked AS (
 		i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
 		i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
 		i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.last_activity_at,
-		i.number, i.project_id, i.metadata, i.stage, i.properties, i.revision,
+		i.number, i.project_id, i.metadata, i.stage, i.properties, i.revision, i.duplicate_of_issue_id,
 		COUNT(*) OVER (PARTITION BY i.assignee_type, i.assignee_id) AS group_total,
 		ROW_NUMBER() OVER (
 			PARTITION BY i.assignee_type, i.assignee_id
@@ -2240,7 +2320,7 @@ SELECT
 	id, workspace_id, title, description, status, priority,
 	assignee_type, assignee_id, creator_type, creator_id,
 	parent_issue_id, position, start_date, due_date, created_at, updated_at, last_activity_at,
-	number, project_id, metadata, stage, properties, revision, group_total
+	number, project_id, metadata, stage, properties, revision, duplicate_of_issue_id, group_total
 FROM ranked
 WHERE rn > %s AND rn <= %s + %s
 ORDER BY
@@ -2289,6 +2369,7 @@ ORDER BY
 			&row.Stage,
 			&row.Properties,
 			&row.Revision,
+			&row.DuplicateOfIssueID,
 			&row.GroupTotal,
 		); err != nil {
 			slog.Warn("ListGroupedIssues scan failed", "error", err)
@@ -3408,6 +3489,13 @@ type UpdateIssueRequest struct {
 	// predate the handoff UI removal. It is consumed only when this write starts
 	// a run and is never stored on the issue itself.
 	HandoffNote string `json:"handoff_note,omitempty"`
+	// DuplicateOfIssueID marks this issue as a duplicate of another issue in
+	// the same workspace (MUL-7349). A duplicate is an ordinary cancelled issue
+	// that remembers its original, so this also sets status to cancelled.
+	// Any later status change away from cancelled removes the mark; there is
+	// no explicit null. Write-only: read the relation back from
+	// GET /api/issues/{id}/duplicates. Not accepted by batch updates.
+	DuplicateOfIssueID *string `json:"duplicate_of_issue_id,omitempty"`
 }
 
 func mergeIssueChannelMediaDescription(current, incoming string, base *string, attachments []db.Attachment) string {
@@ -3629,6 +3717,11 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	duplicateOfID, ok := parseDuplicateMark(w, &req, rawFields, prevIssue.ID)
+	if !ok {
+		return
+	}
+
 	// Pre-fill nullable fields (bare sqlc.narg) with current values
 	params := db.UpdateIssueParams{
 		SourceTaskID:  h.wakeupSourceTaskID(r),
@@ -3640,6 +3733,8 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		ParentIssueID: prevIssue.ParentIssueID,
 		ProjectID:     prevIssue.ProjectID,
 		Stage:         prevIssue.Stage,
+		// Checked against the locked rows in updateIssueWithStatusGuard.
+		DuplicateOfIssueID: duplicateOfID,
 	}
 	if req.ExpectedRevision != nil {
 		if *req.ExpectedRevision < 1 {
@@ -3839,6 +3934,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		if writeIssueStatusRaceError(w, err) {
 			return
 		}
+		if writeDuplicateMarkError(w, err) {
+			return
+		}
 		if errors.Is(err, errIssueFieldConflict) {
 			writeEditConflict(w, "issue", prevIssue.ID)
 			return
@@ -3901,6 +3999,10 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		"prev_description":    textToPtr(prevIssue.Description),
 		"creator_type":        prevIssue.CreatorType,
 		"creator_id":          uuidToString(prevIssue.CreatorID),
+		// The duplicate mark is not on IssueResponse, so both ends of a
+		// change ride here for clients refreshing the two issues' relations.
+		"duplicate_of_issue_id":      uuidToPtr(issue.DuplicateOfIssueID),
+		"prev_duplicate_of_issue_id": uuidToPtr(prevIssue.DuplicateOfIssueID),
 	})
 	if attachmentsChanged {
 		// The full owner snapshot must be admitted before an auxiliary event at
@@ -4184,7 +4286,8 @@ func (h *Handler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 	// other clients after an identifier-path delete.
 	resolvedID := uuidToString(issue.ID)
 	h.publish(protocol.EventIssueDeleted, uuidToString(issue.WorkspaceID), actorType, actorID, map[string]any{"issue_id": resolvedID})
-	h.publishDetachedChildren(r.Context(), deleteResult.DetachedChildren, actorType, actorID)
+	h.publishIssueSnapshots(r.Context(), deleteResult.DetachedChildren, actorType, actorID)
+	h.publishClearedDuplicates(r.Context(), deleteResult.ClearedDuplicates, actorType, actorID)
 	slog.Info("issue deleted", append(logger.RequestAttrs(r), "issue_id", resolvedID, "workspace_id", uuidToString(issue.WorkspaceID))...)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -4197,6 +4300,16 @@ func (h *Handler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 type issueDeleteResult struct {
 	AttachmentURLs   []string
 	DetachedChildren []db.Issue
+	// ClearedDuplicates lost their duplicate mark because their original was
+	// deleted. They stay cancelled.
+	ClearedDuplicates []clearedDuplicate
+}
+
+// clearedDuplicate pairs a duplicate whose mark a delete cleared with the
+// original that delete removed, so the broadcast can still name it.
+type clearedDuplicate struct {
+	Issue    db.Issue
+	Original db.Issue
 }
 
 func (h *Handler) deleteIssueAndCollectAttachmentURLs(ctx context.Context, issue db.Issue, excludedIssueIDs []pgtype.UUID) (issueDeleteResult, error) {
@@ -4228,6 +4341,15 @@ func (h *Handler) deleteIssuesAndCollectAttachmentURLs(ctx context.Context, issu
 			return issueDeleteResult{}, fmt.Errorf("detach child issues: %w", err)
 		}
 		result.DetachedChildren = append(result.DetachedChildren, detached...)
+		cleared, err := qtx.ClearIssueDuplicatesOf(ctx, db.ClearIssueDuplicatesOfParams{
+			WorkspaceID: issue.WorkspaceID, IssueID: issue.ID, ExcludedIssueIds: excludedIssueIDs,
+		})
+		if err != nil {
+			return issueDeleteResult{}, fmt.Errorf("clear duplicate marks: %w", err)
+		}
+		for _, duplicate := range cleared {
+			result.ClearedDuplicates = append(result.ClearedDuplicates, clearedDuplicate{Issue: duplicate, Original: issue})
+		}
 		attachmentURLs, err := qtx.ListAttachmentURLsByIssueOrComments(ctx, issue.ID)
 		if err != nil {
 			return issueDeleteResult{}, fmt.Errorf("list issue attachment URLs: %w", err)
@@ -4280,11 +4402,31 @@ func (h *Handler) deleteIssuesAndCollectAttachmentURLs(ctx context.Context, issu
 	return result, nil
 }
 
-func (h *Handler) publishDetachedChildren(ctx context.Context, children []db.Issue, actorType, actorID string) {
-	for _, child := range children {
-		response := issueToResponse(child, h.getIssuePrefix(ctx, child.WorkspaceID))
-		h.fillStatusCategory(ctx, child.WorkspaceID, &response)
-		h.publish(protocol.EventIssueUpdated, uuidToString(child.WorkspaceID), actorType, actorID, map[string]any{"issue": response})
+// publishIssueSnapshots broadcasts issue:updated for issues a delete rewrote:
+// detached children and duplicates whose original was deleted.
+func (h *Handler) publishIssueSnapshots(ctx context.Context, issues []db.Issue, actorType, actorID string) {
+	for _, issue := range issues {
+		response := issueToResponse(issue, h.getIssuePrefix(ctx, issue.WorkspaceID))
+		h.fillStatusCategory(ctx, issue.WorkspaceID, &response)
+		h.publish(protocol.EventIssueUpdated, uuidToString(issue.WorkspaceID), actorType, actorID, map[string]any{"issue": response})
+	}
+}
+
+// publishClearedDuplicates broadcasts issue:updated for duplicates whose
+// original a delete removed. The pointer went with the original, so the
+// payload names both ends the way UpdateIssue does, plus the identifier the
+// activity log can no longer look up (MUL-7349).
+func (h *Handler) publishClearedDuplicates(ctx context.Context, cleared []clearedDuplicate, actorType, actorID string) {
+	for _, c := range cleared {
+		prefix := h.getIssuePrefix(ctx, c.Issue.WorkspaceID)
+		response := issueToResponse(c.Issue, prefix)
+		h.fillStatusCategory(ctx, c.Issue.WorkspaceID, &response)
+		h.publish(protocol.EventIssueUpdated, uuidToString(c.Issue.WorkspaceID), actorType, actorID, map[string]any{
+			"issue":                        response,
+			"duplicate_of_issue_id":        uuidToPtr(c.Issue.DuplicateOfIssueID),
+			"prev_duplicate_of_issue_id":   uuidToPtr(c.Original.ID),
+			"prev_duplicate_of_identifier": prefix + "-" + strconv.Itoa(int(c.Original.Number)),
+		})
 	}
 }
 
@@ -4327,6 +4469,10 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 	var rawUpdates map[string]json.RawMessage
 	if raw, exists := rawTop["updates"]; exists {
 		json.Unmarshal(raw, &rawUpdates)
+	}
+	if _, ok := rawUpdates["duplicate_of_issue_id"]; ok {
+		writeError(w, http.StatusBadRequest, "duplicate_of_issue_id is not supported in batch updates")
+		return
 	}
 
 	// Short-circuit when no mutation field is present in `updates`. Without
@@ -4602,11 +4748,13 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		projectChanged := req.Updates.ProjectID != nil && uuidToString(prevIssue.ProjectID) != uuidToString(issue.ProjectID)
 
 		h.publish(protocol.EventIssueUpdated, workspaceID, actorType, actorID, map[string]any{
-			"issue":            resp,
-			"assignee_changed": assigneeChanged,
-			"status_changed":   statusChanged,
-			"priority_changed": priorityChanged,
-			"project_changed":  projectChanged,
+			"issue":                      resp,
+			"assignee_changed":           assigneeChanged,
+			"status_changed":             statusChanged,
+			"priority_changed":           priorityChanged,
+			"project_changed":            projectChanged,
+			"duplicate_of_issue_id":      uuidToPtr(issue.DuplicateOfIssueID),
+			"prev_duplicate_of_issue_id": uuidToPtr(prevIssue.DuplicateOfIssueID),
 		})
 
 		// Reassignment does not cancel existing tasks (#4963 / MUL-4113) —
@@ -4728,7 +4876,8 @@ func (h *Handler) BatchDeleteIssues(w http.ResponseWriter, r *http.Request) {
 	for _, issue := range issues {
 		h.publish(protocol.EventIssueDeleted, workspaceID, actorType, actorID, map[string]any{"issue_id": uuidToString(issue.ID)})
 	}
-	h.publishDetachedChildren(r.Context(), deleteResult.DetachedChildren, actorType, actorID)
+	h.publishIssueSnapshots(r.Context(), deleteResult.DetachedChildren, actorType, actorID)
+	h.publishClearedDuplicates(r.Context(), deleteResult.ClearedDuplicates, actorType, actorID)
 	deleted := len(issues)
 
 	slog.Info("batch delete issues", append(logger.RequestAttrs(r), "count", deleted)...)
