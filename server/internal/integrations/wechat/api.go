@@ -35,6 +35,9 @@ const (
 	longPollTimeout       = 40 * time.Second
 	apiTimeout            = 15 * time.Second
 	qrStatusTimeout       = 75 * time.Second
+	// qrPollCap is below the ~30.1s upstream long-poll and the 30s
+	// frontend abort. A canceled ctx used to surface as 503, not wait.
+	qrPollCap = 29 * time.Second
 )
 
 // Official QR statuses (openclaw-weixin backend-api). "scaned" is the
@@ -347,6 +350,23 @@ func isClientTimeout(err error) bool {
 	return errors.As(err, &ne) && ne.Timeout()
 }
 
+// isPollWait is the status-poll abort path: a timeout, or a cap/parent
+// deadline that utls AfterFunc surfaces as a closed-conn I/O error
+// instead of DeadlineExceeded. Structured iLink errors stay errors.
+func isPollWait(err error, ctx context.Context) bool {
+	if isClientTimeout(err) {
+		return true
+	}
+	if ctx.Err() == nil {
+		return false
+	}
+	var ae *apiError
+	if errors.As(err, &ae) || errors.Is(err, ErrSessionExpired) {
+		return false
+	}
+	return true
+}
+
 func (c *iLinkClient) qrStatusClient() *http.Client {
 	if c != nil && c.qrStatus != nil {
 		return c.qrStatus
@@ -357,10 +377,26 @@ func (c *iLinkClient) qrStatusClient() *http.Client {
 	return &http.Client{Timeout: qrStatusTimeout}
 }
 
+// qrPollCapForTest, when > 0, replaces qrPollCap so unit tests can inject
+// a short hold without waiting the production 29s.
+var qrPollCapForTest time.Duration
+
+func effectiveQRPollCap() time.Duration {
+	if qrPollCapForTest > 0 {
+		return qrPollCapForTest
+	}
+	return qrPollCap
+}
+
 // GetQRCodeStatus long-polls one QR session. Official: GET.
 // Upstream holds a live key until scan/expiry; a 15s client timeout looks
 // like 503 to the settings page. Timeouts are "still waiting", not errors.
 func (c *iLinkClient) GetQRCodeStatus(ctx context.Context, qrcode, verifyCode string) (QRStatus, error) {
+	// Cap below the ~30.1s upstream long-poll cycle: frontends abort at 30s,
+	// and a canceled ctx surfaces as 503 instead of wait. Returning early
+	// makes the next poll pick the event up within one cycle.
+	ctx, cancel := context.WithTimeout(ctx, effectiveQRPollCap())
+	defer cancel()
 	q := url.Values{"qrcode": []string{qrcode}}
 	if verifyCode != "" {
 		q.Set("verify_code", verifyCode)
@@ -368,7 +404,7 @@ func (c *iLinkClient) GetQRCodeStatus(ctx context.Context, qrcode, verifyCode st
 	var out QRStatus
 	err := c.do(ctx, c.qrStatusClient(), http.MethodGet, "ilink/bot/get_qrcode_status", q, nil, false, &out)
 	if err != nil {
-		if isClientTimeout(err) {
+		if isPollWait(err, ctx) {
 			return QRStatus{Status: QRStatusWait}, nil
 		}
 		return QRStatus{}, err

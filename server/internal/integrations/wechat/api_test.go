@@ -251,6 +251,65 @@ func TestGetQRCodeStatusTimeoutReturnsWait(t *testing.T) {
 	}
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestGetQRCodeStatusPollCapReturnsWait(t *testing.T) {
+	orig := qrPollCapForTest
+	qrPollCapForTest = 80 * time.Millisecond
+	t.Cleanup(func() { qrPollCapForTest = orig })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": QRStatusScanned})
+	}))
+	defer srv.Close()
+
+	c := newILinkClient(srv.URL, "", srv.Client())
+	t0 := time.Now()
+	st, err := c.GetQRCodeStatus(context.Background(), "live-key", "")
+	elapsed := time.Since(t0)
+	if err != nil || st.Status != QRStatusWait {
+		t.Fatalf("poll cap must be wait: st=%+v err=%v", st, err)
+	}
+	if elapsed < 60*time.Millisecond || elapsed > 500*time.Millisecond {
+		t.Fatalf("poll cap elapsed %s, want ~80ms", elapsed)
+	}
+}
+
+func TestGetQRCodeStatusCapClosedConnReturnsWait(t *testing.T) {
+	orig := qrPollCapForTest
+	qrPollCapForTest = 40 * time.Millisecond
+	t.Cleanup(func() { qrPollCapForTest = orig })
+
+	c := newILinkClient("http://qr.example", "", &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			<-req.Context().Done()
+			return nil, errors.New("use of closed network connection")
+		}),
+	})
+	st, err := c.GetQRCodeStatus(context.Background(), "live-key", "")
+	if err != nil || st.Status != QRStatusWait {
+		t.Fatalf("cap + closed conn must be wait: st=%+v err=%v", st, err)
+	}
+}
+
+func TestGetQRCodeStatusLiveCtxClosedConnIsError(t *testing.T) {
+	c := newILinkClient("http://qr.example", "", &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("use of closed network connection")
+		}),
+	})
+	st, err := c.GetQRCodeStatus(context.Background(), "live-key", "")
+	if err == nil || st.Status == QRStatusWait {
+		t.Fatalf("live ctx closed conn must stay an error: st=%+v err=%v", st, err)
+	}
+}
+
 func TestBuildClientVersion(t *testing.T) {
 	if got := buildClientVersion("2.4.9"); got != "132105" {
 		t.Fatalf("2.4.9 = %s want 132105", got)
