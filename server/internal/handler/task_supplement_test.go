@@ -44,6 +44,26 @@ func TestStableTaskSupplementFailureReason(t *testing.T) {
 	}
 }
 
+func TestTaskSupplementSettlementHasNoDatabaseTrigger(t *testing.T) {
+	if testPool == nil {
+		t.Skip("database not available")
+	}
+	var exists bool
+	if err := testPool.QueryRow(t.Context(), `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_trigger
+			WHERE tgname = 'trg_settle_terminal_task_supplements'
+			  AND NOT tgisinternal
+		)
+	`).Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("task supplement settlement still depends on a database trigger")
+	}
+}
+
 func TestTaskSupplementClaimStartReplay(t *testing.T) {
 	f := newSupplementFixture(t, "codex", "dispatched", false)
 	dbfx.Cleanup(t, `DELETE FROM task_supplement_capability WHERE task_id=$1`, f.taskID)
@@ -77,7 +97,9 @@ func TestTaskSupplementLateDeliveryAndDeletion(t *testing.T) {
 		return withURLParam(newRequest(http.MethodDelete, "/comments/"+sent.ID, nil), "commentId", sent.ID)
 	}
 	testutil.Call(t, testHandler.DeleteComment, deleteRequest()).Want(http.StatusConflict)
-	dbfx.Exec(t, `UPDATE agent_task_queue SET status='completed' WHERE id=$1`, f.taskID)
+	if w := completeTaskViaHandler(t, f.taskID, "done"); w.Code != http.StatusOK {
+		t.Fatalf("complete task: status %d: %s", w.Code, w.Body.String())
+	}
 	for _, c := range []CommentResponse{sent, pending} {
 		req := withURLParams(newDaemonTokenRequest(http.MethodPost, "/ack", map[string]any{"delivered": true}, testWorkspaceID, "legit-daemon"), "taskId", f.taskID, "commentId", c.ID)
 		want := http.StatusOK
@@ -517,6 +539,52 @@ func TestTaskSupplementStopRemainsIndependent(t *testing.T) {
 	dbfx.QueryRow(t, `SELECT count(*) FROM agent_task_queue WHERE issue_id = $1`, fixture.issueID).Scan(&taskCount)
 	if taskCount != 1 {
 		t.Fatalf("stop or supplement created %d runs, want one", taskCount)
+	}
+}
+
+func TestTaskSupplementFailureSettlesPendingReceipt(t *testing.T) {
+	fixture := newSupplementFixture(t, "codex", "running", true)
+	var comment CommentResponse
+	supplementRequest(t, fixture, "0199a4e8-22ce-7b01-bba5-555555555555", "pending when failed").
+		Want(http.StatusCreated).JSON(&comment)
+	if w := failTaskViaHandler(t, fixture.taskID); w.Code != http.StatusOK {
+		t.Fatalf("fail task: status %d: %s", w.Code, w.Body.String())
+	}
+	receipt, err := testHandler.Queries.GetTaskSupplementByComment(t.Context(), db.GetTaskSupplementByCommentParams{
+		CommentID: parseUUID(comment.ID), WorkspaceID: parseUUID(testWorkspaceID),
+	})
+	if err != nil || receipt.Status != "failed" || receipt.FailureReason.String != protocol.TaskSupplementFailureTurnEnded {
+		t.Fatalf("failed task receipt = %#v, err %v", receipt, err)
+	}
+}
+
+func TestTaskSupplementTerminalWriteRollsBackWhenSettlementFails(t *testing.T) {
+	fixture := newSupplementFixture(t, "codex", "running", true)
+	var comment CommentResponse
+	supplementRequest(t, fixture, "0199a4e8-22ce-7b01-bba5-aaaaaaaaaaaa", "must settle atomically").
+		Want(http.StatusCreated).JSON(&comment)
+
+	dbfx.Exec(t, `
+		CREATE OR REPLACE FUNCTION reject_task_supplement_settlement() RETURNS trigger AS $$
+		BEGIN RAISE EXCEPTION 'settlement rejected'; END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER reject_task_supplement_settlement
+		BEFORE UPDATE OF status ON task_supplement
+		FOR EACH ROW EXECUTE FUNCTION reject_task_supplement_settlement()
+	`)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DROP TRIGGER IF EXISTS reject_task_supplement_settlement ON task_supplement`)
+		_, _ = testPool.Exec(context.Background(), `DROP FUNCTION IF EXISTS reject_task_supplement_settlement()`)
+	})
+
+	if w := completeTaskViaHandler(t, fixture.taskID, "done"); w.Code != http.StatusInternalServerError {
+		t.Fatalf("complete task with rejected settlement: status %d: %s", w.Code, w.Body.String())
+	}
+	var taskStatus, receiptStatus string
+	dbfx.QueryRow(t, `SELECT status FROM agent_task_queue WHERE id = $1`, fixture.taskID).Scan(&taskStatus)
+	dbfx.QueryRow(t, `SELECT status FROM task_supplement WHERE comment_id = $1`, comment.ID).Scan(&receiptStatus)
+	if taskStatus != "running" || receiptStatus != "pending" {
+		t.Fatalf("partial terminal commit: task=%s receipt=%s", taskStatus, receiptStatus)
 	}
 }
 

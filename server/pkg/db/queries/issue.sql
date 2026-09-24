@@ -384,6 +384,13 @@ ORDER BY created_at ASC, id ASC;
 SELECT id, number, title, status FROM issue
 WHERE id = $1 AND workspace_id = $2;
 
+-- name: ListIssueRefsInWorkspace :many
+-- GetIssueRefInWorkspace for a page: every original the page's duplicates
+-- point at, in one read.
+SELECT id, number, title, status FROM issue
+WHERE workspace_id = sqlc.arg('workspace_id')
+  AND id = ANY(sqlc.arg('ids')::uuid[]);
+
 -- name: ClearIssueDuplicatesOf :many
 -- Deleting an issue clears the pointers of its duplicates, the way deleting a
 -- parent detaches its children. They stay cancelled. Issues deleted in the
@@ -485,6 +492,12 @@ cleared_task_supplement_capabilities AS (
 ),
 cleared_vcs_pr_links AS (
     DELETE FROM issue_vcs_pull_request WHERE issue_id IN (SELECT target.id FROM target)
+),
+cleared_pr_automation AS (
+    DELETE FROM issue_pr_automation WHERE issue_id IN (SELECT target.id FROM target)
+),
+cleared_pr_exclusions AS (
+    DELETE FROM issue_pull_request_exclusion WHERE issue_id IN (SELECT target.id FROM target)
 )
 DELETE FROM issue WHERE issue.id IN (SELECT target.id FROM target);
 

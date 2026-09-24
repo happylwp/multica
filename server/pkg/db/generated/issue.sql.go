@@ -495,6 +495,12 @@ cleared_task_supplement_capabilities AS (
 ),
 cleared_vcs_pr_links AS (
     DELETE FROM issue_vcs_pull_request WHERE issue_id IN (SELECT target.id FROM target)
+),
+cleared_pr_automation AS (
+    DELETE FROM issue_pr_automation WHERE issue_id IN (SELECT target.id FROM target)
+),
+cleared_pr_exclusions AS (
+    DELETE FROM issue_pull_request_exclusion WHERE issue_id IN (SELECT target.id FROM target)
 )
 DELETE FROM issue WHERE issue.id IN (SELECT target.id FROM target)
 `
@@ -1314,6 +1320,51 @@ func (q *Queries) ListIssueGCStatuses(ctx context.Context, arg ListIssueGCStatus
 	for rows.Next() {
 		var i ListIssueGCStatusesRow
 		if err := rows.Scan(&i.ID, &i.Status, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssueRefsInWorkspace = `-- name: ListIssueRefsInWorkspace :many
+SELECT id, number, title, status FROM issue
+WHERE workspace_id = $1
+  AND id = ANY($2::uuid[])
+`
+
+type ListIssueRefsInWorkspaceParams struct {
+	WorkspaceID pgtype.UUID   `json:"workspace_id"`
+	Ids         []pgtype.UUID `json:"ids"`
+}
+
+type ListIssueRefsInWorkspaceRow struct {
+	ID     pgtype.UUID `json:"id"`
+	Number int32       `json:"number"`
+	Title  string      `json:"title"`
+	Status string      `json:"status"`
+}
+
+// GetIssueRefInWorkspace for a page: every original the page's duplicates
+// point at, in one read.
+func (q *Queries) ListIssueRefsInWorkspace(ctx context.Context, arg ListIssueRefsInWorkspaceParams) ([]ListIssueRefsInWorkspaceRow, error) {
+	rows, err := q.db.Query(ctx, listIssueRefsInWorkspace, arg.WorkspaceID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListIssueRefsInWorkspaceRow{}
+	for rows.Next() {
+		var i ListIssueRefsInWorkspaceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.Title,
+			&i.Status,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

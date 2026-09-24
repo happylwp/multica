@@ -552,6 +552,30 @@ func (q *Queries) RetryTaskSupplement(ctx context.Context, arg RetryTaskSuppleme
 	return i, err
 }
 
+const settleTerminalTaskSupplements = `-- name: SettleTerminalTaskSupplements :execrows
+UPDATE task_supplement AS supplement
+SET status = 'failed',
+    failure_reason = 'turn_ended',
+    updated_at = now()
+FROM agent_task_queue AS task
+WHERE supplement.task_id = task.id
+  AND task.id = ANY($1::uuid[])
+  AND task.status IN ('completed', 'failed', 'cancelled')
+  AND supplement.status IN ('pending', 'delivering')
+`
+
+// Application terminal transitions call this in the same transaction as the
+// agent_task_queue update. Re-checking the persisted task status makes an
+// accidental early call a no-op while preserving the task-row -> supplement
+// lock order used by creation and delivery acknowledgement.
+func (q *Queries) SettleTerminalTaskSupplements(ctx context.Context, taskIds []pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, settleTerminalTaskSupplements, taskIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const startAgentTaskWithSupplement = `-- name: StartAgentTaskWithSupplement :one
 WITH candidate AS MATERIALIZED (
     SELECT t.id, t.issue_id, r.workspace_id, r.provider

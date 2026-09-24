@@ -354,7 +354,11 @@ func validateIssueEnum(w http.ResponseWriter, field, value string, allowed []str
 // Resolver includes ARCHIVED statuses, because an issue left on an archived
 // status still belongs in its category's column. (MUL-6243)
 func (h *Handler) fillStatusCategories(ctx context.Context, wsID pgtype.UUID, resps []IssueResponse) {
-	fill := h.newStatusCategoryFiller(ctx, wsID)
+	var originals []pgtype.UUID
+	for i := range resps {
+		originals = appendDuplicateOriginal(originals, resps[i].Status, resps[i].duplicateOfIssueID)
+	}
+	fill := h.newStatusCategoryFiller(ctx, wsID, originals...)
 	for i := range resps {
 		fill(&resps[i])
 	}
@@ -365,16 +369,22 @@ func (h *Handler) fillStatusCategories(ctx context.Context, wsID pgtype.UUID, re
 // the catalog at most once, so a page of custom-status rows costs one query
 // rather than one per row. Creating a filler per row would reintroduce the N+1
 // this exists to avoid. (MUL-6243)
-func (h *Handler) newStatusCategoryFiller(ctx context.Context, wsID pgtype.UUID) func(*IssueResponse) {
+//
+// originals are the duplicate originals the caller's rows point at, collected
+// with appendDuplicateOriginal. A page passes them so they resolve in one read
+// up front, the way labelsByIssue loads a page's labels; an original that was
+// not passed still resolves, one read per distinct original. (MUL-7349)
+func (h *Handler) newStatusCategoryFiller(ctx context.Context, wsID pgtype.UUID, originals ...pgtype.UUID) func(*IssueResponse) {
 	resolver := issuestatus.NewResolver(wsID)
-	originals := map[pgtype.UUID]*IssueRefResponse{}
+	refs := duplicateOriginals{}
+	h.loadDuplicateOriginals(ctx, wsID, refs, originals)
 	return func(resp *IssueResponse) {
 		if resp == nil {
 			return
 		}
 		// Every response that resolves its status also resolves its duplicate
 		// mark, so the two never disagree about which endpoints carry them.
-		h.fillDuplicateOf(ctx, wsID, resp, originals)
+		h.fillDuplicateOf(ctx, wsID, resp, refs)
 		if resp.StatusCategory != "" {
 			return
 		}
@@ -402,39 +412,66 @@ func duplicateOfPointer(status string, id pgtype.UUID) pgtype.UUID {
 	return id
 }
 
-// fillDuplicateOf resolves a duplicate mark to its original (MUL-7349): a
-// primary-key read per distinct original, memoised in memo across one
-// response so many duplicates of one issue cost one read. A missing original
-// (memoised as nil) leaves DuplicateOf unset.
-func (h *Handler) fillDuplicateOf(ctx context.Context, wsID pgtype.UUID, resp *IssueResponse, memo map[pgtype.UUID]*IssueRefResponse) {
-	if !resp.duplicateOfIssueID.Valid {
+// duplicateOriginals memoises the originals a request's duplicates point at,
+// by id. A nil entry is an original that no longer exists (or could not be
+// read), so it is looked up once and then left off every response.
+type duplicateOriginals map[pgtype.UUID]*db.ListIssueRefsInWorkspaceRow
+
+// appendDuplicateOriginal adds the original a row points at, if the row
+// carries a live duplicate mark.
+func appendDuplicateOriginal(originals []pgtype.UUID, status string, id pgtype.UUID) []pgtype.UUID {
+	if pointer := duplicateOfPointer(status, id); pointer.Valid {
+		return append(originals, pointer)
+	}
+	return originals
+}
+
+// loadDuplicateOriginals reads every id not yet in refs in one query.
+func (h *Handler) loadDuplicateOriginals(ctx context.Context, wsID pgtype.UUID, refs duplicateOriginals, ids []pgtype.UUID) {
+	var missing []pgtype.UUID
+	for _, id := range ids {
+		if _, seen := refs[id]; !seen {
+			refs[id] = nil
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) == 0 {
 		return
 	}
-	ref, seen := memo[resp.duplicateOfIssueID]
-	if !seen {
-		row, err := h.Queries.GetIssueRefInWorkspace(ctx, db.GetIssueRefInWorkspaceParams{
-			ID:          resp.duplicateOfIssueID,
-			WorkspaceID: wsID,
-		})
-		switch {
-		case err == nil:
-			// The response already rendered its own identifier with the
-			// workspace prefix; the original shares it.
-			prefix := strings.TrimSuffix(resp.Identifier, "-"+strconv.Itoa(int(resp.Number)))
-			ref = &IssueRefResponse{
-				ID:         uuidToString(row.ID),
-				Identifier: prefix + "-" + strconv.Itoa(int(row.Number)),
-				Title:      row.Title,
-				Status:     row.Status,
-			}
-		case !isNotFound(err):
-			slog.Warn("resolve duplicate original failed", "error", err, "issue_id", resp.ID)
-		}
-		memo[resp.duplicateOfIssueID] = ref
+	rows, err := h.Queries.ListIssueRefsInWorkspace(ctx, db.ListIssueRefsInWorkspaceParams{
+		WorkspaceID: wsID,
+		Ids:         missing,
+	})
+	if err != nil {
+		slog.Warn("resolve duplicate originals failed", "error", err, "count", len(missing))
+		return
 	}
-	if ref != nil {
-		copied := *ref
-		resp.DuplicateOf = &copied
+	for i := range rows {
+		refs[rows[i].ID] = &rows[i]
+	}
+}
+
+// fillDuplicateOf resolves a duplicate mark to its original (MUL-7349),
+// through refs so a page's originals cost one read (see
+// newStatusCategoryFiller). A missing original leaves DuplicateOf unset.
+func (h *Handler) fillDuplicateOf(ctx context.Context, wsID pgtype.UUID, resp *IssueResponse, refs duplicateOriginals) {
+	id := resp.duplicateOfIssueID
+	if !id.Valid {
+		return
+	}
+	h.loadDuplicateOriginals(ctx, wsID, refs, []pgtype.UUID{id})
+	row := refs[id]
+	if row == nil {
+		return
+	}
+	// The response already rendered its own identifier with the workspace
+	// prefix; the original shares it.
+	prefix := strings.TrimSuffix(resp.Identifier, "-"+strconv.Itoa(int(resp.Number)))
+	resp.DuplicateOf = &IssueRefResponse{
+		ID:         uuidToString(row.ID),
+		Identifier: prefix + "-" + strconv.Itoa(int(row.Number)),
+		Title:      row.Title,
+		Status:     row.Status,
 	}
 }
 
@@ -1189,7 +1226,11 @@ func (h *Handler) SearchIssues(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prefix := h.getIssuePrefix(ctx, wsUUID)
-	fillSearch := h.newStatusCategoryFiller(ctx, wsUUID)
+	var originals []pgtype.UUID
+	for _, sr := range results {
+		originals = appendDuplicateOriginal(originals, sr.issue.Status, sr.issue.DuplicateOfIssueID)
+	}
+	fillSearch := h.newStatusCategoryFiller(ctx, wsUUID, originals...)
 	resp := make([]SearchIssueResponse, len(results))
 	for i, sr := range results {
 		sir := SearchIssueResponse{
@@ -1357,11 +1398,13 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 
 		prefix := h.getIssuePrefix(ctx, wsUUID)
 		ids := make([]pgtype.UUID, len(issues))
+		var originals []pgtype.UUID
 		for i, issue := range issues {
 			ids[i] = issue.ID
+			originals = appendDuplicateOriginal(originals, issue.Status, issue.DuplicateOfIssueID)
 		}
 		labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
-		fillOpen := h.newStatusCategoryFiller(ctx, wsUUID)
+		fillOpen := h.newStatusCategoryFiller(ctx, wsUUID, originals...)
 		resp := make([]IssueResponse, len(issues))
 		for i, issue := range issues {
 			resp[i] = openIssueRowToResponse(issue, prefix)
@@ -2385,14 +2428,16 @@ ORDER BY
 	}
 
 	ids := make([]pgtype.UUID, len(groupedRows))
+	var originals []pgtype.UUID
 	for i, row := range groupedRows {
 		ids[i] = row.ID
+		originals = appendDuplicateOriginal(originals, row.Status, row.DuplicateOfIssueID)
 	}
 	labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
 	prefix := h.getIssuePrefix(ctx, wsUUID)
 	// One Resolver for the whole page — a per-row filler would query the
 	// catalog once per custom-status row. (MUL-6243)
-	fillGrouped := h.newStatusCategoryFiller(ctx, wsUUID)
+	fillGrouped := h.newStatusCategoryFiller(ctx, wsUUID, originals...)
 
 	groups := []IssueAssigneeGroupResponse{}
 	groupIndex := map[string]int{}
@@ -3999,10 +4044,10 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		"prev_description":    textToPtr(prevIssue.Description),
 		"creator_type":        prevIssue.CreatorType,
 		"creator_id":          uuidToString(prevIssue.CreatorID),
-		// The duplicate mark is not on IssueResponse, so both ends of a
-		// change ride here for clients refreshing the two issues' relations.
-		"duplicate_of_issue_id":      uuidToPtr(issue.DuplicateOfIssueID),
-		"prev_duplicate_of_issue_id": uuidToPtr(prevIssue.DuplicateOfIssueID),
+		// Both ends of a mark change ride here: the activity log records it
+		// and clients refresh the two issues' relations from it.
+		"duplicate_of_issue_id":      liveDuplicateMark(issue.Status, issue.DuplicateOfIssueID),
+		"prev_duplicate_of_issue_id": liveDuplicateMark(prevIssue.Status, prevIssue.DuplicateOfIssueID),
 	})
 	if attachmentsChanged {
 		// The full owner snapshot must be admitted before an auxiliary event at
@@ -4423,8 +4468,8 @@ func (h *Handler) publishClearedDuplicates(ctx context.Context, cleared []cleare
 		h.fillStatusCategory(ctx, c.Issue.WorkspaceID, &response)
 		h.publish(protocol.EventIssueUpdated, uuidToString(c.Issue.WorkspaceID), actorType, actorID, map[string]any{
 			"issue":                        response,
-			"duplicate_of_issue_id":        uuidToPtr(c.Issue.DuplicateOfIssueID),
-			"prev_duplicate_of_issue_id":   uuidToPtr(c.Original.ID),
+			"duplicate_of_issue_id":        liveDuplicateMark(c.Issue.Status, c.Issue.DuplicateOfIssueID),
+			"prev_duplicate_of_issue_id":   liveDuplicateMark(c.Issue.Status, c.Original.ID),
 			"prev_duplicate_of_identifier": prefix + "-" + strconv.Itoa(int(c.Original.Number)),
 		})
 	}
@@ -4753,8 +4798,8 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			"status_changed":             statusChanged,
 			"priority_changed":           priorityChanged,
 			"project_changed":            projectChanged,
-			"duplicate_of_issue_id":      uuidToPtr(issue.DuplicateOfIssueID),
-			"prev_duplicate_of_issue_id": uuidToPtr(prevIssue.DuplicateOfIssueID),
+			"duplicate_of_issue_id":      liveDuplicateMark(issue.Status, issue.DuplicateOfIssueID),
+			"prev_duplicate_of_issue_id": liveDuplicateMark(prevIssue.Status, prevIssue.DuplicateOfIssueID),
 		})
 
 		// Reassignment does not cancel existing tasks (#4963 / MUL-4113) —

@@ -114,6 +114,21 @@ WHERE cap.workspace_id = @workspace_id
   AND cap.task_id = ANY(@task_ids::uuid[])
 GROUP BY cap.task_id, cap.capability;
 
+-- name: SettleTerminalTaskSupplements :execrows
+-- Application terminal transitions call this in the same transaction as the
+-- agent_task_queue update. Re-checking the persisted task status makes an
+-- accidental early call a no-op while preserving the task-row -> supplement
+-- lock order used by creation and delivery acknowledgement.
+UPDATE task_supplement AS supplement
+SET status = 'failed',
+    failure_reason = 'turn_ended',
+    updated_at = now()
+FROM agent_task_queue AS task
+WHERE supplement.task_id = task.id
+  AND task.id = ANY(@task_ids::uuid[])
+  AND task.status IN ('completed', 'failed', 'cancelled')
+  AND supplement.status IN ('pending', 'delivering');
+
 -- name: ClaimNextTaskSupplement :one
 WITH next AS MATERIALIZED (
     SELECT s.comment_id

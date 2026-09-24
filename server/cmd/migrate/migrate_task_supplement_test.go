@@ -26,6 +26,7 @@ func TestTaskSupplementMigrationsUpDownUpInIsolatedSchema(t *testing.T) {
 			"541_task_supplement_comment_index",
 			"542_task_supplement_primary_key",
 			"543_task_supplement_teardown_guard",
+			"544_task_supplement_application_settlement",
 		}
 		if direction == "down" {
 			slices.Reverse(versions)
@@ -61,7 +62,19 @@ func TestTaskSupplementMigrationsUpDownUpInIsolatedSchema(t *testing.T) {
 			if err := pool.QueryRow(ctx, `SELECT indisprimary FROM pg_index WHERE indexrelid = 'task_supplement_pkey'::regclass`).Scan(&primary); err != nil || !primary {
 				t.Fatalf("receipt primary key missing: %v", err)
 			}
-			// Teardown owns dependent deletion and must not run receipt settlement.
+			var triggerExists bool
+			if err := pool.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM pg_trigger
+					WHERE tgname = 'trg_settle_terminal_task_supplements'
+					  AND NOT tgisinternal
+				)
+			`).Scan(&triggerExists); err != nil || triggerExists {
+				t.Fatalf("terminal supplement trigger exists=%v: %v", triggerExists, err)
+			}
+
+			// A bare task update no longer has hidden cross-table effects. The
+			// application owns receipt settlement in the surrounding transaction.
 			tx, err := pool.Begin(ctx)
 			if err != nil {
 				t.Fatal(err)
@@ -70,7 +83,6 @@ func TestTaskSupplementMigrationsUpDownUpInIsolatedSchema(t *testing.T) {
 				INSERT INTO agent_task_queue VALUES ('00000000-0000-0000-0000-000000000001', 'running');
 				INSERT INTO task_supplement (task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, status)
 				VALUES ('00000000-0000-0000-0000-000000000001', gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'pending');
-				SET LOCAL multica.workspace_teardown = 'on';
 				UPDATE agent_task_queue SET status='cancelled';`)
 			var status string
 			if err == nil {
@@ -78,7 +90,7 @@ func TestTaskSupplementMigrationsUpDownUpInIsolatedSchema(t *testing.T) {
 			}
 			_ = tx.Rollback(ctx)
 			if err != nil || status != "pending" {
-				t.Fatalf("teardown ran receipt settlement: %s, %v", status, err)
+				t.Fatalf("task update had hidden receipt settlement: %s, %v", status, err)
 			}
 		}
 	}
