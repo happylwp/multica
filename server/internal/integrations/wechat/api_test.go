@@ -1,12 +1,15 @@
 package wechat
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -246,4 +249,139 @@ func TestGetQRCodeStatusTimeoutReturnsWait(t *testing.T) {
 	if err != nil || st.Status != QRStatusWait {
 		t.Fatalf("timeout must be wait: st=%+v err=%v", st, err)
 	}
+}
+
+func TestBuildClientVersion(t *testing.T) {
+	if got := buildClientVersion("2.4.9"); got != "132105" {
+		t.Fatalf("2.4.9 = %s want 132105", got)
+	}
+	if got := buildClientVersion("1.0.11"); got != "65547" {
+		t.Fatalf("1.0.11 = %s want 65547", got)
+	}
+}
+
+func assertNodeStyleHeaders(t *testing.T, h http.Header) {
+	t.Helper()
+	want := map[string]string{
+		"User-Agent":              "node",
+		"Accept":                  "*/*",
+		"Accept-Language":         "*",
+		"Sec-Fetch-Mode":          "cors",
+		"Accept-Encoding":         "gzip, deflate",
+		"iLink-App-ClientVersion": "132105",
+	}
+	for k, v := range want {
+		if h.Get(k) != v {
+			t.Fatalf("%s = %q want %q", k, h.Get(k), v)
+		}
+	}
+}
+
+func TestCommonHeadersMatchOfficialNode(t *testing.T) {
+	var post, get http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/get_bot_qrcode") && r.Method == http.MethodPost:
+			post = r.Header.Clone()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ret": 0, "qrcode": "qr-key", "qrcode_img_content": "https://img.example/qr",
+			})
+		case strings.HasSuffix(r.URL.Path, "/get_qrcode_status") && r.Method == http.MethodGet:
+			get = r.Header.Clone()
+			_ = json.NewEncoder(w).Encode(map[string]any{"ret": 0, "status": QRStatusWait})
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := newILinkClient(srv.URL, "", srv.Client())
+	if _, err := c.GetBotQRCode(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.GetQRCodeStatus(context.Background(), "qr-key", ""); err != nil {
+		t.Fatal(err)
+	}
+	if post == nil || get == nil {
+		t.Fatal("did not capture POST and GET headers")
+	}
+	assertNodeStyleHeaders(t, post)
+	assertNodeStyleHeaders(t, get)
+	if post.Get("AuthorizationType") != "ilink_bot_token" {
+		t.Fatal("POST missing AuthorizationType")
+	}
+	if post.Get("Content-Type") != "application/json" {
+		t.Fatal("POST missing Content-Type")
+	}
+	if post.Get("X-WECHAT-UIN") == "" {
+		t.Fatal("POST missing X-WECHAT-UIN")
+	}
+	if get.Get("AuthorizationType") != "" || get.Get("X-WECHAT-UIN") != "" || get.Get("Content-Type") != "" {
+		t.Fatalf("GET must not send POST-only headers: %+v", get)
+	}
+}
+
+func TestReadResponseBodyGzip(t *testing.T) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write([]byte(`{"ret":0}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	resp := &http.Response{
+		Header: http.Header{"Content-Encoding": []string{"gzip"}},
+		Body:   io.NopCloser(bytes.NewReader(buf.Bytes())),
+	}
+	got, err := readResponseBody(resp, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"ret":0}` {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestDoDecodesGzipJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		if _, err := zw.Write([]byte(`{"ret":0,"get_updates_buf":"gz-cursor","msgs":[]}`)); err != nil {
+			t.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+	c := newILinkClient(srv.URL, "tok", srv.Client())
+	env, err := c.GetUpdates(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.GetUpdatesBuf != "gz-cursor" {
+		t.Fatalf("env = %+v", env)
+	}
+}
+
+func TestLiveGetBotQRCodeRet0(t *testing.T) {
+	if os.Getenv("WECHAT_ILINK_LIVE") != "1" {
+		t.Skip("set WECHAT_ILINK_LIVE=1 to hit ilinkai.weixin.qq.com")
+	}
+	c := newILinkClient("", "", nil)
+	qr, err := c.GetBotQRCode(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qr.Key == "" {
+		t.Fatal("empty qrcode key")
+	}
+	prefix := qr.Key
+	if len(prefix) > 8 {
+		prefix = prefix[:8]
+	}
+	t.Logf("get_bot_qrcode ret=0 key_prefix=%s len=%d", prefix, len(qr.Key))
 }

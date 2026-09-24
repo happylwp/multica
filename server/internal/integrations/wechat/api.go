@@ -2,6 +2,7 @@ package wechat
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,8 +27,11 @@ const defaultAPIBase = "https://ilinkai.weixin.qq.com"
 const (
 	defaultChannelVersion = "1.0.3"
 	defaultBotAgent       = "Multica"
-	defaultClientVersion  = "1"
 	defaultILinkAppID     = "openclaw-weixin"
+	// officialPluginVersion is @tencent-weixin/openclaw-weixin; WeChat
+	// risk-controls iLink-App-ClientVersion against this encoding.
+	officialPluginVersion = "2.4.9"
+	nodeUserAgent         = "node"
 	longPollTimeout       = 40 * time.Second
 	apiTimeout            = 15 * time.Second
 	qrStatusTimeout       = 75 * time.Second
@@ -150,9 +155,34 @@ func (c *iLinkClient) baseInfo() baseInfo {
 	return baseInfo{ChannelVersion: c.version, BotAgent: c.botAgent}
 }
 
+// buildClientVersion encodes major.minor.patch as official 0x00MMNNPP
+// (high 8 bits 0; major<<16 | minor<<8 | patch). "2.4.9" -> 132105.
+func buildClientVersion(version string) string {
+	var major, minor, patch int
+	parts := strings.Split(version, ".")
+	if len(parts) > 0 {
+		major, _ = strconv.Atoi(parts[0])
+	}
+	if len(parts) > 1 {
+		minor, _ = strconv.Atoi(parts[1])
+	}
+	if len(parts) > 2 {
+		patch, _ = strconv.Atoi(parts[2])
+	}
+	n := ((major & 0xff) << 16) | ((minor & 0xff) << 8) | (patch & 0xff)
+	return strconv.Itoa(n)
+}
+
 func (c *iLinkClient) setCommonHeaders(req *http.Request, authenticated bool) {
+	// Match Node undici fetch defaults. WeChat signs these; Go's implicit
+	// User-Agent (Go-http-client/1.1) is rejected at QR bind.
+	req.Header.Set("User-Agent", nodeUserAgent)
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "*")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Accept-Encoding", "gzip, deflate")
 	req.Header.Set("iLink-App-Id", c.appID)
-	req.Header.Set("iLink-App-ClientVersion", defaultClientVersion)
+	req.Header.Set("iLink-App-ClientVersion", buildClientVersion(officialPluginVersion))
 	if req.Method == http.MethodPost {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("AuthorizationType", "ilink_bot_token")
@@ -173,6 +203,22 @@ func randomClientID() string {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
 	return base64.RawURLEncoding.EncodeToString(b[:])
+}
+
+// readResponseBody reads at most limit bytes. Setting Accept-Encoding
+// ourselves disables Transport's transparent gzip, so gzip bodies must
+// be decoded here before JSON parse.
+func readResponseBody(resp *http.Response, limit int64) ([]byte, error) {
+	var r io.Reader = resp.Body
+	if strings.EqualFold(strings.TrimSpace(resp.Header.Get("Content-Encoding")), "gzip") {
+		gr, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		defer gr.Close()
+		r = gr
+	}
+	return io.ReadAll(io.LimitReader(r, limit))
 }
 
 func (c *iLinkClient) do(ctx context.Context, client *http.Client, method, path string, query url.Values, body any, authenticated bool, out any) error {
@@ -205,7 +251,7 @@ func (c *iLinkClient) do(ctx context.Context, client *http.Client, method, path 
 		return &requestError{method: path, cause: err}
 	}
 	defer resp.Body.Close()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	payload, err := readResponseBody(resp, 1<<20)
 	if err != nil {
 		return fmt.Errorf("wechat: read %s response: %w", path, err)
 	}
