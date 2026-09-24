@@ -100,7 +100,13 @@ func newILinkClient(apiBase, token string, httpClient *http.Client) *iLinkClient
 	apiBase = strings.TrimRight(apiBase, "/")
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: apiTimeout}
+	} else {
+		// Copy so a shared caller client (InstallService, tests) is not
+		// mutated when we attach the iLink-only utls transport.
+		cp := *httpClient
+		httpClient = &cp
 	}
+	httpClient.Transport = newUTLSTransport(httpClient.Transport)
 	longPoll := *httpClient
 	if longPoll.Timeout < longPollTimeout {
 		longPoll.Timeout = longPollTimeout
