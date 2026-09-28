@@ -11,9 +11,14 @@ describe("settings location", () => {
     ["tab=chat", { tab: "preferences", section: "chat", integration: null }],
     ["tab=labs", { tab: "workspace", section: null, integration: null }],
     ["tab=lark", { tab: "channels", section: null, integration: "lark" }],
+    ["tab=wechat", { tab: "channels", section: null, integration: "wechat" }],
     [
       "tab=integrations&integration=slack",
       { tab: "channels", section: null, integration: "slack" },
+    ],
+    [
+      "tab=integrations&integration=wechat",
+      { tab: "channels", section: null, integration: "wechat" },
     ],
     ["tab=integrations", { tab: "channels", section: null, integration: null }],
     [

@@ -40,6 +40,7 @@ vi.mock("./lark-tab", () => ({ LarkTab: () => <div>Lark detail</div> }));
 vi.mock("./slack-tab", () => ({ SlackTab: () => <div>Slack detail</div> }));
 vi.mock("./dingtalk-tab", () => ({ DingTalkTab: () => <div>DingTalk detail</div> }));
 vi.mock("./wecom-tab", () => ({ WecomTab: () => <div>WeCom detail</div> }));
+vi.mock("./wechat-tab", () => ({ WechatTab: () => <div>WeChat detail</div> }));
 vi.mock("./telegram-tab", () => ({ TelegramTab: () => <div>Telegram detail</div> }));
 
 import { ChannelsTab } from "./channels-tab";
@@ -60,10 +61,11 @@ describe("ChannelsTab", () => {
     expect(screen.queryByRole("link", { name: /GitHub/ })).toBeNull();
     expect(screen.queryByRole("link", { name: /Composio/ })).toBeNull();
     expect(screen.queryByText("Slack detail")).toBeNull();
-    const shapes = ["lark", "slack", "dingtalk", "wecom", "telegram"].map(
+    expect(screen.getByRole("link", { name: /WeChat \(Personal\) Connected/ })).toBeInTheDocument();
+    const shapes = ["lark", "slack", "dingtalk", "wecom", "wechat", "telegram"].map(
       (channel) => screen.getByTestId(`integration-channel-icon-${channel}`).innerHTML,
     );
-    expect(new Set(shapes).size).toBe(5);
+    expect(new Set(shapes).size).toBe(6);
 
     fireEvent.click(screen.getByRole("link", { name: /Slack Connected/ }));
     expect(state.push).toHaveBeenCalledWith("/acme/settings?tab=channels&integration=slack");
@@ -101,5 +103,18 @@ describe("ChannelsTab", () => {
     state.search = "tab=lark";
     renderWithI18n(<ChannelsTab />);
     expect(screen.getByText("Lark detail")).toBeInTheDocument();
+  });
+
+  it("opens the WeChat channel from the Messaging directory", () => {
+    state.search = "tab=channels&integration=wechat";
+    renderWithI18n(<ChannelsTab />);
+    expect(screen.getByText("WeChat detail")).toBeInTheDocument();
+    expect(screen.queryByText("WeCom detail")).toBeNull();
+  });
+
+  it("opens the retired WeChat bookmark on the WeChat page", () => {
+    state.search = "tab=wechat";
+    renderWithI18n(<ChannelsTab />);
+    expect(screen.getByText("WeChat detail")).toBeInTheDocument();
   });
 });
