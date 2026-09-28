@@ -633,3 +633,17 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+// escapeMarkdownText escapes inline Markdown and block-marker characters for
+// plain notification text. Upstream renamed its copy to
+// escapeMarkdownLinkLabel (4f315a271) and dropped the block-marker escapes;
+// the done-notify renderer keeps the wider set so identifiers like MARO-162
+// and titles containing "-" or "#" stay literal. Fork-maintained.
+func escapeMarkdownText(text string) string {
+	return strings.NewReplacer(
+		`\`, `\\`, "`", "\\`", "*", "\\*", "_", "\\_",
+		"[", "\\[", "]", "\\]",
+		"#", "\\#", "+", "\\+", "-", "\\-", "!", "\\!",
+		">", "\\>", "|", "\\|",
+	).Replace(text)
+}
