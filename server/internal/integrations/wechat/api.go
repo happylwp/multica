@@ -27,7 +27,7 @@ const defaultAPIBase = "https://ilinkai.weixin.qq.com"
 const (
 	defaultChannelVersion = "1.0.3"
 	defaultBotAgent       = "Multica"
-	defaultILinkAppID     = "openclaw-weixin"
+	defaultILinkAppID     = "bot"
 	// officialPluginVersion is @tencent-weixin/openclaw-weixin; WeChat
 	// risk-controls iLink-App-ClientVersion against this encoding.
 	officialPluginVersion = "2.4.9"

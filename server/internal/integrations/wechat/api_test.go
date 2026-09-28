@@ -327,12 +327,38 @@ func assertNodeStyleHeaders(t *testing.T, h http.Header) {
 		"Accept-Language":         "*",
 		"Sec-Fetch-Mode":          "cors",
 		"Accept-Encoding":         "gzip, deflate",
+		"iLink-App-Id":            "bot",
 		"iLink-App-ClientVersion": "132105",
 	}
 	for k, v := range want {
 		if h.Get(k) != v {
 			t.Fatalf("%s = %q want %q", k, h.Get(k), v)
 		}
+	}
+}
+
+func TestDefaultILinkAppIDOnGetBotQRCode(t *testing.T) {
+	t.Setenv(wechatHTTPSProxyEnv, "")
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/get_bot_qrcode") || r.Method != http.MethodPost {
+			t.Fatalf("path/method = %s %s", r.Method, r.URL.Path)
+		}
+		got = r.Header.Get("iLink-App-Id")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ret": 0, "qrcode": "k", "qrcode_img_content": "https://img.example/qr",
+		})
+	}))
+	defer srv.Close()
+
+	c := newILinkClient("", "", nil)
+	c.loginBase = srv.URL
+	c.apiBase = srv.URL
+	if _, err := c.GetBotQRCode(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got != "bot" {
+		t.Fatalf("iLink-App-Id = %q want bot", got)
 	}
 }
 
