@@ -6,3 +6,7 @@ services:
   backend:
     environment:
       MULTICA_WECHAT_SECRET_KEY: ${MULTICA_WECHAT_SECRET_KEY:?set MULTICA_WECHAT_SECRET_KEY in .env}
+      # iLink-only CONNECT proxy. Empty = direct dial. Docker Desktop's TCP
+      # stack is risk-scored; tunnel via a host-native listener so egress
+      # looks like a normal client, e.g. http://host.docker.internal:18081
+      MULTICA_WECHAT_HTTPS_PROXY: ${MULTICA_WECHAT_HTTPS_PROXY:-}
