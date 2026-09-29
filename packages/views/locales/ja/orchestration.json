@@ -1,0 +1,18 @@
+{
+  "page": {
+    "title": "オーケストレーション",
+    "loading": "課題を読み込み中…"
+  },
+  "toolbar": {
+    "stats": "{{total}} 件 · {{lanes}} レーン · {{nodes}} ノード · 待機 {{waiting}} · 停滞 {{blocked}}",
+    "focus_active": "進行中に絞る",
+    "refresh": "更新",
+    "filter_all": "すべて",
+    "filter_waiting": "待機",
+    "filter_blocked": "停滞",
+    "filter_done": "完了"
+  },
+  "error": {
+    "load_failed": "課題を読み込めませんでした。"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "page": {
+    "title": "编排全景",
+    "loading": "正在加载任务…"
+  },
+  "toolbar": {
+    "stats": "{{total}} 个任务 · {{lanes}} 道泳道 · {{nodes}} 个节点 · 等待 {{waiting}} · 停滞 {{blocked}}",
+    "focus_active": "聚焦活跃链",
+    "refresh": "刷新",
+    "filter_all": "全部",
+    "filter_waiting": "等待",
+    "filter_blocked": "停滞",
+    "filter_done": "已完成"
+  },
+  "error": {
+    "load_failed": "无法加载任务。"
+  }
+}

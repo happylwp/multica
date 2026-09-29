@@ -1,0 +1,18 @@
+{
+  "page": {
+    "title": "오케스트레이션",
+    "loading": "이슈를 불러오는 중…"
+  },
+  "toolbar": {
+    "stats": "{{total}}개 이슈 · {{lanes}}개 레인 · {{nodes}}개 노드 · 대기 {{waiting}} · 정체 {{blocked}}",
+    "focus_active": "활성 체인 집중",
+    "refresh": "새로고침",
+    "filter_all": "전체",
+    "filter_waiting": "대기",
+    "filter_blocked": "정체",
+    "filter_done": "완료"
+  },
+  "error": {
+    "load_failed": "이슈를 불러오지 못했습니다."
+  }
+}

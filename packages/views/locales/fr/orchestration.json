@@ -1,0 +1,18 @@
+{
+  "page": {
+    "title": "Orchestration",
+    "loading": "Chargement des tâches…"
+  },
+  "toolbar": {
+    "stats": "{{total}} tâches · {{lanes}} couloirs · {{nodes}} nœuds · attente {{waiting}} · bloqué {{blocked}}",
+    "focus_active": "Chaînes actives",
+    "refresh": "Actualiser",
+    "filter_all": "Tout",
+    "filter_waiting": "Attente",
+    "filter_blocked": "Bloqué",
+    "filter_done": "Terminé"
+  },
+  "error": {
+    "load_failed": "Impossible de charger les tâches."
+  }
+}

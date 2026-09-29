@@ -1,0 +1,18 @@
+{
+  "page": {
+    "title": "Orchestration",
+    "loading": "Loading issues…"
+  },
+  "toolbar": {
+    "stats": "{{total}} issues · {{lanes}} lanes · {{nodes}} nodes · waiting {{waiting}} · blocked {{blocked}}",
+    "focus_active": "Focus active",
+    "refresh": "Refresh",
+    "filter_all": "All",
+    "filter_waiting": "Waiting",
+    "filter_blocked": "Blocked",
+    "filter_done": "Done"
+  },
+  "error": {
+    "load_failed": "Could not load issues."
+  }
+}
