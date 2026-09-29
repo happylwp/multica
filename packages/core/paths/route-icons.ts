@@ -40,7 +40,8 @@ export type RouteIconName =
   | "FileArchive"
   | "FileAudio"
   | "FileVideo"
-  | "FileQuestion";
+  | "FileQuestion"
+  | "Workflow";
 
 /** i18n label key (under the `layout.nav` namespace) for a page. */
 export type NavLabelKey =
@@ -55,7 +56,8 @@ export type NavLabelKey =
   | "usage"
   | "runtimes"
   | "skills"
-  | "settings";
+  | "settings"
+  | "orchestration";
 
 /** Stable identifier for each workspace navigation page. */
 export type WorkspacePageKey =
@@ -70,7 +72,8 @@ export type WorkspacePageKey =
   | "usage"
   | "runtimes"
   | "skills"
-  | "settings";
+  | "settings"
+  | "orchestration";
 
 export interface WorkspacePage {
   /** Route segment at index 1 of `/{slug}/{segment}/...`. */
@@ -98,6 +101,7 @@ export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
   runtimes: { segment: "runtimes", icon: "Monitor", navKey: "runtimes" },
   skills: { segment: "skills", icon: "BookOpenText", navKey: "skills" },
   settings: { segment: "settings", icon: "Settings", navKey: "settings" },
+  orchestration: { segment: "orchestration", icon: "Workflow", navKey: "orchestration" },
 };
 
 /** Reverse lookup: route segment → page key. */

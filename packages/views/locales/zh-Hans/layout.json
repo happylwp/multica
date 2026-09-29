@@ -11,7 +11,8 @@
     "usage": "统计",
     "runtimes": "运行时",
     "skills": "Skills",
-    "settings": "设置"
+    "settings": "设置",
+    "orchestration": "编排全景"
   },
   "tab": {
     "issue": "任务",
@@ -61,5 +62,28 @@
       "title": "加入 Discord",
       "dismiss": "关闭"
     }
+  },
+  "orchestration": {
+    "title": "编排全景",
+    "description": "泳道是父任务链，列是阶段，标签区分 waiting 与 blocked。",
+    "focus_active": "聚焦活跃链",
+    "filter_waiting": "waiting",
+    "filter_blocked_waiting": "blocked·等",
+    "filter_blocked": "blocked",
+    "filter_pending": "待决策",
+    "filter_in_progress": "进行中",
+    "filter_in_review": "审查中",
+    "filter_done": "已完成",
+    "stats": "等待 {{waiting}} · 真停滞 {{blocked}} · 待决策 {{pending}}",
+    "loading": "正在加载编排图…",
+    "load_error": "无法加载任务数据。",
+    "retry": "重试",
+    "canvas_label": "任务编排全景图",
+    "phase_ph0": "入口",
+    "phase_ph1": "实现",
+    "phase_ph2": "审查",
+    "phase_ph3": "测试",
+    "phase_ph4": "发布",
+    "phase_ph5": "终验"
   }
 }

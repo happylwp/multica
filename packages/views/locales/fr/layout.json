@@ -11,7 +11,8 @@
     "usage": "Statistiques",
     "runtimes": "Runtimes",
     "skills": "Skills",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "orchestration": "Orchestration"
   },
   "tab": {
     "issue": "Tâche",
@@ -61,5 +62,28 @@
       "title": "Rejoignez notre Discord",
       "dismiss": "Ignorer"
     }
+  },
+  "orchestration": {
+    "title": "Orchestration",
+    "description": "Les couloirs sont des chaînes parentes ; les colonnes sont des étapes ; les tags séparent waiting et blocked.",
+    "focus_active": "Focus sur les chaînes actives",
+    "filter_waiting": "waiting",
+    "filter_blocked_waiting": "blocked · attente",
+    "filter_blocked": "blocked",
+    "filter_pending": "Décision requise",
+    "filter_in_progress": "en cours",
+    "filter_in_review": "en revue",
+    "filter_done": "terminé",
+    "stats": "attente {{waiting}} · bloqué {{blocked}} · décision {{pending}}",
+    "loading": "Chargement du graphe…",
+    "load_error": "Impossible de charger les issues.",
+    "retry": "Réessayer",
+    "canvas_label": "Graphe d’orchestration des tâches",
+    "phase_ph0": "Entrée",
+    "phase_ph1": "Implémenter",
+    "phase_ph2": "Revue",
+    "phase_ph3": "Test",
+    "phase_ph4": "Publication",
+    "phase_ph5": "Acceptation"
   }
 }
