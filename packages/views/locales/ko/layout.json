@@ -11,7 +11,8 @@
     "usage": "분석",
     "runtimes": "런타임",
     "skills": "스킬",
-    "settings": "설정"
+    "settings": "설정",
+    "orchestration": "오케스트레이션"
   },
   "tab": {
     "issue": "태스크",
@@ -61,5 +62,28 @@
       "title": "Discord 참여하기",
       "dismiss": "닫기"
     }
+  },
+  "orchestration": {
+    "title": "오케스트레이션",
+    "description": "스윔레인은 부모 작업 사슬, 열은 단계, 태그는 waiting과 blocked를 구분합니다.",
+    "focus_active": "활성 사슬 집중",
+    "filter_waiting": "waiting",
+    "filter_blocked_waiting": "blocked·등",
+    "filter_blocked": "blocked",
+    "filter_pending": "결정 대기",
+    "filter_in_progress": "진행 중",
+    "filter_in_review": "검토 중",
+    "filter_done": "완료",
+    "stats": "대기 {{waiting}} · 정체 {{blocked}} · 결정 대기 {{pending}}",
+    "loading": "그래프를 불러오는 중…",
+    "load_error": "이슈를 불러오지 못했습니다.",
+    "retry": "다시 시도",
+    "canvas_label": "작업 오케스트레이션 그래프",
+    "phase_ph0": "진입",
+    "phase_ph1": "구현",
+    "phase_ph2": "검토",
+    "phase_ph3": "테스트",
+    "phase_ph4": "배포",
+    "phase_ph5": "검수"
   }
 }
