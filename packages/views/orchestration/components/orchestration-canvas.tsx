@@ -105,7 +105,6 @@ export function OrchestrationCanvas({
         fitView
         minZoom={0.25}
         maxZoom={1.6}
-        proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
         aria-label={t(($) => $.orchestration.canvas_label)}
       >
