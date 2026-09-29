@@ -1,7 +1,12 @@
 import { memo } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { cn } from "@multica/ui/lib/utils";
-import type { OrchestrationLaneData, OrchestrationNodeData } from "../map/layout";
+import { useT } from "../../i18n";
+import type {
+  OrchestrationLaneData,
+  OrchestrationNodeData,
+  OrchestrationPhaseData,
+} from "../map/layout";
 import { tagTone } from "./tag-style";
 
 export const OrchestrationIssueNode = memo(function OrchestrationIssueNode({
@@ -39,6 +44,25 @@ export const OrchestrationLaneNode = memo(function OrchestrationLaneNode({
   return (
     <div className="flex h-[68px] w-[168px] items-center">
       <p className="line-clamp-2 text-caption font-medium text-muted-foreground">{data.label}</p>
+    </div>
+  );
+});
+
+export const OrchestrationPhaseNode = memo(function OrchestrationPhaseNode({
+  data,
+}: NodeProps<Node<OrchestrationPhaseData>>) {
+  const { t } = useT("layout");
+  const labels = {
+    ph0: t(($) => $.orchestration.phase_ph0),
+    ph1: t(($) => $.orchestration.phase_ph1),
+    ph2: t(($) => $.orchestration.phase_ph2),
+    ph3: t(($) => $.orchestration.phase_ph3),
+    ph4: t(($) => $.orchestration.phase_ph4),
+    ph5: t(($) => $.orchestration.phase_ph5),
+  };
+  return (
+    <div className="pointer-events-none flex h-8 w-[168px] items-center justify-center text-caption font-medium text-muted-foreground">
+      {labels[data.phaseId as keyof typeof labels] ?? data.phaseId}
     </div>
   );
 });

@@ -3,6 +3,7 @@ import type { LaneKind, WorkflowGraph, WorkflowNode } from "./types";
 
 export const COL_ORIGIN_X = 196;
 export const COL_GAP = 196;
+export const PHASE_ORIGIN_Y = 16;
 export const LANE_ORIGIN_Y = 72;
 export const LANE_GAP = 156;
 
@@ -22,9 +23,21 @@ export type OrchestrationLaneData = {
   kind?: LaneKind;
 };
 
+export type OrchestrationPhaseData = {
+  phaseId: string;
+};
+
+export function columnX(col: number): number {
+  return COL_ORIGIN_X + col * COL_GAP;
+}
+
+export function phasePosition(col: number): { x: number; y: number } {
+  return { x: columnX(col), y: PHASE_ORIGIN_Y };
+}
+
 export function nodePosition(node: WorkflowNode, laneIndex: number): { x: number; y: number } {
   return {
-    x: COL_ORIGIN_X + node.col * COL_GAP,
+    x: columnX(node.col),
     y: LANE_ORIGIN_Y + laneIndex * LANE_GAP + (node.yOffset ?? 0),
   };
 }
@@ -34,15 +47,26 @@ export function toFlowGraph(graph: WorkflowGraph): {
   edges: Edge[];
 } {
   const laneIndex = new Map(graph.lanes.map((lane, i) => [lane.id, i]));
-  const nodes: Node[] = graph.lanes.map((lane, i) => ({
-    id: `lane:${lane.id}`,
-    type: "orchestrationLane",
-    position: { x: 8, y: LANE_ORIGIN_Y + i * LANE_GAP },
-    data: { label: lane.label, kind: lane.kind },
-    draggable: false,
-    selectable: false,
-    connectable: false,
-  }));
+  const nodes: Node[] = [
+    ...graph.phases.map((phase) => ({
+      id: `phase:${phase.id}`,
+      type: "orchestrationPhase",
+      position: phasePosition(phase.fromCol),
+      data: { phaseId: phase.id },
+      draggable: false,
+      selectable: false,
+      connectable: false,
+    })),
+    ...graph.lanes.map((lane, i) => ({
+      id: `lane:${lane.id}`,
+      type: "orchestrationLane",
+      position: { x: 8, y: LANE_ORIGIN_Y + i * LANE_GAP },
+      data: { label: lane.label, kind: lane.kind },
+      draggable: false,
+      selectable: false,
+      connectable: false,
+    })),
+  ];
 
   for (const node of graph.nodes) {
     const idx = laneIndex.get(node.lane) ?? 0;
