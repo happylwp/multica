@@ -177,6 +177,8 @@
     "unified": "统一",
     "split": "分栏",
     "collapse_file": "折叠文件",
-    "expand_file": "展开文件"
+    "expand_file": "展开文件",
+    "expand_context": "展开 {{count}} 行未变更",
+    "render_failed": "无法渲染这个文件。"
   }
 }

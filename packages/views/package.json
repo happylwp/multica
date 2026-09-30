@@ -73,7 +73,6 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@floating-ui/dom": "^1.7.6",
-    "@git-diff-view/react": "^0.1.7",
     "@multica/core": "workspace:*",
     "@multica/ui": "workspace:*",
     "@tanstack/react-virtual": "catalog:",

@@ -1,53 +1,43 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { DiffModeEnum, DiffView } from "@git-diff-view/react";
-import "@git-diff-view/react/styles/diff-view.css";
-import { useTheme } from "@multica/ui/components/common/theme-provider";
+import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
+import { Button } from "@multica/ui/components/ui/button";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../i18n";
-import { languageForDiffPath } from "./file-language";
-import {
-  summarizeDiff,
-  type ParsedDiffFile,
-} from "./parse-unified-diff";
-
-const HIGHLIGHT_LINE_BUDGET = 4000;
+import { CodeDiffHunkView } from "./code-diff-hunk-view";
+import { summarizeDiff, type ParsedDiffFile } from "./parse-unified-diff";
 
 export interface CodeDiffViewerProps {
   files: ParsedDiffFile[];
   className?: string;
 }
 
-function useResolvedScheme(): "light" | "dark" {
-  const { resolvedTheme, theme } = useTheme();
-  const value = resolvedTheme ?? theme;
-  if (value === "dark") return "dark";
-  if (value === "light") return "light";
-  if (typeof document !== "undefined" && document.documentElement.classList.contains("dark")) {
-    return "dark";
-  }
-  return "light";
+function HunkCrash({ reset }: { reset: () => void }) {
+  const { t } = useT("editor");
+  const { t: tUi } = useT("ui");
+  return (
+    <div
+      role="alert"
+      data-testid="code-diff-render-error"
+      className="flex flex-col items-start gap-3 p-4"
+    >
+      <p className="text-body text-muted-foreground">{t(($) => $.code_diff.render_failed)}</p>
+      <Button type="button" size="sm" variant="outline" onClick={reset}>
+        {tUi(($) => $.error_boundary.try_again)}
+      </Button>
+    </div>
+  );
 }
 
 export function CodeDiffViewer({ files, className }: CodeDiffViewerProps) {
   const { t } = useT("editor");
-  const scheme = useResolvedScheme();
   const [selected, setSelected] = useState(0);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [split, setSplit] = useState(false);
 
   const totals = useMemo(() => summarizeDiff(files), [files]);
   const file = files[selected];
-  const highlight = useMemo(() => {
-    let lines = 0;
-    for (const item of files) {
-      for (const hunk of item.hunks) {
-        lines += hunk.split("\n").length;
-      }
-    }
-    return lines <= HIGHLIGHT_LINE_BUDGET;
-  }, [files]);
 
   if (files.length === 0) {
     return (
@@ -156,33 +146,22 @@ export function CodeDiffViewer({ files, className }: CodeDiffViewerProps) {
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           {file && !collapsed[file.path] && (
-            file.binary || file.hunks.length === 0 ? (
-              <div className="px-4 py-8 text-body text-muted-foreground">
-                {file.binary
-                  ? t(($) => $.code_diff.binary)
-                  : file.renamed
-                    ? t(($) => $.code_diff.renamed)
-                    : t(($) => $.code_diff.empty)}
-              </div>
-            ) : (
-              <DiffView
-                data={{
-                  oldFile: {
-                    fileName: file.oldPath || file.path,
-                    fileLang: languageForDiffPath(file.oldPath || file.path),
-                  },
-                  newFile: {
-                    fileName: file.newPath || file.path,
-                    fileLang: languageForDiffPath(file.newPath || file.path),
-                  },
-                  hunks: file.hunks,
-                }}
-                diffViewMode={split ? DiffModeEnum.Split : DiffModeEnum.Unified}
-                diffViewTheme={scheme}
-                diffViewHighlight={highlight}
-                diffViewWrap
-              />
-            )
+            <ErrorBoundary
+              resetKeys={[selected, file.path, split]}
+              fallback={({ reset }) => <HunkCrash reset={reset} />}
+            >
+              {file.binary || file.hunks.length === 0 ? (
+                <div className="px-4 py-8 text-body text-muted-foreground">
+                  {file.binary
+                    ? t(($) => $.code_diff.binary)
+                    : file.renamed
+                      ? t(($) => $.code_diff.renamed)
+                      : t(($) => $.code_diff.empty)}
+                </div>
+              ) : (
+                <CodeDiffHunkView hunks={file.hunks} split={split} />
+              )}
+            </ErrorBoundary>
           )}
         </div>
       </div>
