@@ -14,7 +14,6 @@ import type {
 } from "./types";
 import {
   DEFAULT_MAX_NODES,
-  DEFAULT_RECENT_CLOSED,
   LANE_LABEL_MAX_UNITS,
   NODE_WIDTH,
   SUBLABEL_MAX_UNITS,
@@ -116,16 +115,11 @@ function buildChains(issues: OrchestrationIssue[], { byId }: IssueIndex): Chain[
   return chains;
 }
 
-function selectChains(chains: Chain[], opts: { recentClosed: number }) {
+function selectChains(chains: Chain[]) {
   const active = chains.filter((c) => c.kind === "active").sort((a, b) => b.activity - a.activity);
   const waiting = chains.filter((c) => c.kind === "waiting").sort((a, b) => b.activity - a.activity);
-  const closed = chains.filter((c) => c.kind === "closed").sort((a, b) => {
-    if (a.standalone !== b.standalone) return a.standalone ? 1 : -1;
-    return b.activity - a.activity;
-  });
-  const keptClosed = closed.slice(0, Math.max(0, opts.recentClosed));
-  const foldedClosed = closed.slice(keptClosed.length);
-  return { active, waiting, keptClosed, foldedClosed };
+  const closed = chains.filter((c) => c.kind === "closed").sort((a, b) => b.activity - a.activity);
+  return { active, waiting, closed };
 }
 
 function stackOffsets(count: number): number[] {
@@ -274,50 +268,6 @@ function expandFullChain(
   return visible;
 }
 
-function foldChain(
-  chain: Chain,
-  laneId: string,
-  nodes: WorkflowNode[],
-  edges: WorkflowEdge[],
-  tag: string,
-  laneKind: LaneKind,
-): { visible: VisibleRec[]; anchorId: string | null } {
-  const root = chain.root;
-  const kids = chain.children;
-  const closedN = kids.filter((c) => CLOSED.has(c.status)).length;
-  const labelIssue = root || kids[0];
-  if (!labelIssue) return { visible: [], anchorId: null };
-
-  const startId = addNode(nodes, {
-    id: nodeId("p", labelIssue),
-    lane: laneId,
-    col: 0,
-    type: "external",
-    label: labelIssue.identifier,
-    sublabel: truncateUnits(labelIssue.title, SUBLABEL_MAX_UNITS),
-    tag: root?.status || "done",
-    width: NODE_WIDTH,
-    issueId: labelIssue.id,
-    laneKind,
-  });
-  const endId = addNode(nodes, {
-    id: `fold${issueKey(labelIssue)}`,
-    lane: laneId,
-    col: 5,
-    type: "cloud",
-    label: chain.standalone ? "独立任务" : `子任务${kids.length}`,
-    sublabel: truncateUnits(chain.standalone ? "已关闭" : `${closedN} 已关闭`, SUBLABEL_MAX_UNITS),
-    tag,
-    width: NODE_WIDTH,
-    laneKind,
-  });
-  edges.push(edge(`e_${laneId}_fold`, startId, endId, "折叠", { variant: "dashed" }));
-  return {
-    visible: [{ issue: labelIssue, id: startId, stage: 0, cls: classifyIssue(labelIssue, kids) }],
-    anchorId: startId,
-  };
-}
-
 function collectExceptionEvents(chains: Chain[], cap = 6) {
   const events: Array<{
     issue: OrchestrationIssue;
@@ -392,10 +342,9 @@ export function buildWorkflow(
   opts: BuildWorkflowOptions = {},
 ): WorkflowGraph {
   const maxNodes = opts.maxNodes ?? DEFAULT_MAX_NODES;
-  const recentClosed = opts.recentClosed ?? DEFAULT_RECENT_CLOSED;
   const index = buildIndex(issues);
   const chains = buildChains(issues, index);
-  const picked = selectChains(chains, { recentClosed });
+  const picked = selectChains(chains);
 
   const lanes: WorkflowLane[] = [];
   const nodes: WorkflowNode[] = [];
@@ -466,54 +415,8 @@ export function buildWorkflow(
     for (const chain of waitingOverflow) rememberAnchor(chain, "waitFoldStart");
   }
 
-  let closedShown = 0;
-  const closedOverflow: Chain[] = [];
-  for (const chain of picked.keptClosed) {
-    if (nodes.length + 2 > maxNodes) {
-      closedOverflow.push(chain);
-      continue;
-    }
-    const laneId = `lc${issueKey(chain.root || chain.children[0]!)}`;
-    pushLane(laneId, laneLabelFor(chain), "closed");
-    const folded = foldChain(chain, laneId, nodes, edges, "done", "closed");
-    visible.push(...folded.visible);
-    rememberAnchor(chain, folded.anchorId);
-    closedShown += 1;
-  }
-
-  const rest = [...picked.foldedClosed, ...closedOverflow];
-  if (rest.length) {
-    const issueCount = rest.reduce((n, c) => n + chainMemberCount(c), 0);
-    pushLane("lhist", "历史已完成", "meta");
-    const dummy = rest[0]!.root || rest[0]!.children[0];
-    addNode(nodes, {
-      id: "histClosed",
-      lane: "lhist",
-      col: 5,
-      type: "cloud",
-      label: `${rest.length}条链`,
-      sublabel: truncateUnits(`${issueCount} 任务已关闭`, SUBLABEL_MAX_UNITS),
-      tag: "folded",
-      width: NODE_WIDTH,
-      laneKind: "meta",
-    });
-    if (dummy) {
-      addNode(nodes, {
-        id: "histStart",
-        lane: "lhist",
-        col: 0,
-        type: "external",
-        label: "更早任务",
-        sublabel: truncateUnits("活跃链优先截断", SUBLABEL_MAX_UNITS),
-        tag: "scale",
-        width: NODE_WIDTH,
-        laneKind: "meta",
-      });
-      edges.push(edge("e_hist", "histStart", "histClosed", "折叠", { variant: "dashed" }));
-    }
-    for (const chain of rest) rememberAnchor(chain, "histClosed");
-  }
-
+  // Fully closed chains stay off the canvas — the orchestration view is for
+  // work in flight. Exception members of closed chains still surface below.
   const events = collectExceptionEvents(chains);
   if (events.length) {
     pushLane("lexc", "异常·返工待决策", "meta", "exception");
@@ -537,7 +440,6 @@ export function buildWorkflow(
       const anchored = ev.chain.id ? anchors.get(ev.chain.id) : undefined;
       let fromId = origin?.id
         || (anchored && nodeIds.has(anchored) ? anchored : null)
-        || (nodeIds.has("histClosed") ? "histClosed" : null)
         || (nodeIds.has("waitFoldStart") ? "waitFoldStart" : null);
       if (!fromId) {
         if (!nodeIds.has("xHist")) {
@@ -589,8 +491,7 @@ export function buildWorkflow(
     activeExpanded: picked.active.length,
     waitingExpanded: waitingExpanded.length,
     waitingFolded: waitingOverflow.length,
-    closedShown,
-    closedHistory: rest.length,
+    closedHidden: picked.closed.length,
   };
 
   return {

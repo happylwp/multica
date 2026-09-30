@@ -78,6 +78,7 @@
     "loading": "Chargement du graphe…",
     "load_error": "Impossible de charger les issues.",
     "retry": "Réessayer",
+    "refresh": "Actualiser",
     "canvas_label": "Graphe d’orchestration des tâches",
     "phase_ph0": "Entrée",
     "phase_ph1": "Implémenter",

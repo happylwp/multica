@@ -66,8 +66,8 @@ export interface WorkflowScale {
   activeExpanded: number;
   waitingExpanded: number;
   waitingFolded: number;
-  closedShown: number;
-  closedHistory: number;
+  /** Fully closed chains kept out of the canvas entirely. */
+  closedHidden: number;
 }
 
 export interface WorkflowStats {
@@ -91,11 +91,9 @@ export interface WorkflowGraph {
 
 export interface BuildWorkflowOptions {
   maxNodes?: number;
-  recentClosed?: number;
 }
 
 export const DEFAULT_MAX_NODES = 80;
-export const DEFAULT_RECENT_CLOSED = 4;
 
 export const SUBLABEL_MAX_UNITS = 18;
 export const LANE_LABEL_MAX_UNITS = 22;

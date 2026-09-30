@@ -37,7 +37,7 @@ describe("buildWorkflow", () => {
     expect(graph.nodes.some((n) => n.issueId === "o")).toBe(true);
   });
 
-  it("expands active chains and folds closed ones to entry → 终验", () => {
+  it("expands active chains and hides fully closed ones from the canvas", () => {
     const activeRoot = issue({ id: "a", identifier: "MARO-10", status: "in_progress", last_activity_at: "2026-09-20T00:00:00Z" });
     const closedRoot = issue({ id: "d", identifier: "MARO-11", status: "done", last_activity_at: "2026-09-10T00:00:00Z" });
     const closedChild = issue({
@@ -48,13 +48,11 @@ describe("buildWorkflow", () => {
       status: "done",
       last_activity_at: "2026-09-10T00:00:00Z",
     });
-    const graph = buildWorkflow([activeRoot, closedRoot, closedChild], { recentClosed: 4 });
+    const graph = buildWorkflow([activeRoot, closedRoot, closedChild]);
     expect(graph.stats.scale?.activeExpanded).toBe(1);
-    expect(graph.stats.scale?.closedShown).toBe(1);
-    const closedLane = graph.lanes.find((l) => l.kind === "closed");
-    expect(closedLane).toBeTruthy();
-    const closedNodes = graph.nodes.filter((n) => n.lane === closedLane?.id);
-    expect(closedNodes.map((n) => n.col).sort()).toEqual([0, 5]);
+    expect(graph.stats.scale?.closedHidden).toBe(1);
+    expect(graph.lanes.find((l) => l.kind === "closed")).toBeUndefined();
+    expect(graph.nodes.some((n) => n.issueId === "d" || n.issueId === "d1")).toBe(false);
   });
 
   it("folds overflow waiting chains into one 等待链折叠 lane", () => {

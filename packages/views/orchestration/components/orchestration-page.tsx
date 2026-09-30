@@ -14,7 +14,7 @@ import type { FilterTag } from "./tag-style";
 
 export function OrchestrationPage() {
   const { t } = useT("layout");
-  const { graph, isPending, isError, refetch } = useOrchestrationGraph();
+  const { graph, isPending, isError, isFetching, refetch } = useOrchestrationGraph();
   const [focusActive, setFocusActive] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FilterTag | null>(null);
 
@@ -32,6 +32,8 @@ export function OrchestrationPage() {
         onFocusActiveChange={setFocusActive}
         activeFilter={activeFilter}
         onFilterChange={setActiveFilter}
+        onRefresh={() => void refetch()}
+        isRefreshing={isFetching}
       />
       {isPending ? (
         <CollectionPageState

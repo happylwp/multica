@@ -23,12 +23,15 @@ const graph = buildWorkflow([
   } satisfies OrchestrationIssue,
 ]);
 
+const refetch = vi.fn();
+
 vi.mock("../hooks/use-orchestration-issues", () => ({
   useOrchestrationGraph: () => ({
     graph,
     isPending: false,
     isError: false,
-    refetch: vi.fn(),
+    isFetching: false,
+    refetch,
   }),
 }));
 
@@ -84,5 +87,16 @@ describe("OrchestrationPage", () => {
     expect(toggle).toHaveAttribute("data-unchecked");
     await user.click(toggle);
     expect(toggle).toHaveAttribute("data-checked");
+  });
+
+  it("refetches when the toolbar refresh button is clicked", async () => {
+    const user = userEvent.setup();
+    renderWithI18n(
+      <NavigationProvider value={adapter}>
+        <OrchestrationPage />
+      </NavigationProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });

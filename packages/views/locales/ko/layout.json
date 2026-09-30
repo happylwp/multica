@@ -78,6 +78,7 @@
     "loading": "그래프를 불러오는 중…",
     "load_error": "이슈를 불러오지 못했습니다.",
     "retry": "다시 시도",
+    "refresh": "새로 고침",
     "canvas_label": "작업 오케스트레이션 그래프",
     "phase_ph0": "진입",
     "phase_ph1": "구현",

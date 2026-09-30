@@ -78,6 +78,7 @@
     "loading": "Loading the workspace graph…",
     "load_error": "Could not load issues for the graph.",
     "retry": "Retry",
+    "refresh": "Refresh",
     "canvas_label": "Task orchestration graph",
     "phase_ph0": "Entry",
     "phase_ph1": "Implement",

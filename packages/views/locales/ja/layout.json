@@ -78,6 +78,7 @@
     "loading": "グラフを読み込み中…",
     "load_error": "課題を読み込めませんでした。",
     "retry": "再試行",
+    "refresh": "更新",
     "canvas_label": "タスク編成グラフ",
     "phase_ph0": "入口",
     "phase_ph1": "実装",

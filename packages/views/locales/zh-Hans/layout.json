@@ -78,6 +78,7 @@
     "loading": "正在加载编排图…",
     "load_error": "无法加载任务数据。",
     "retry": "重试",
+    "refresh": "刷新",
     "canvas_label": "任务编排全景图",
     "phase_ph0": "入口",
     "phase_ph1": "实现",

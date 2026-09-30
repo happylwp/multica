@@ -1,5 +1,6 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
 import { useT } from "../../i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Switch } from "@multica/ui/components/ui/switch";
@@ -13,12 +14,16 @@ export function OrchestrationToolbar({
   onFocusActiveChange,
   activeFilter,
   onFilterChange,
+  onRefresh,
+  isRefreshing,
 }: {
   stats: WorkflowStats;
   focusActive: boolean;
   onFocusActiveChange: (value: boolean) => void;
   activeFilter: FilterTag | null;
   onFilterChange: (value: FilterTag | null) => void;
+  onRefresh: () => void;
+  isRefreshing: boolean;
 }) {
   const { t } = useT("layout");
   const filterLabel: Record<FilterTag, string> = {
@@ -64,6 +69,18 @@ export function OrchestrationToolbar({
           pending: stats.pending,
         })}
       </p>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="h-7 w-7 p-0"
+        aria-label={t(($) => $.orchestration.refresh)}
+        title={t(($) => $.orchestration.refresh)}
+        disabled={isRefreshing}
+        onClick={onRefresh}
+      >
+        <RefreshCw className={cn("size-3.5", isRefreshing && "animate-spin")} />
+      </Button>
     </div>
   );
 }
