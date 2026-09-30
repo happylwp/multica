@@ -164,5 +164,19 @@
     "commands": {
       "note": "메모 추가 — 에이전트를 트리거하지 않음"
     }
+  },
+  "code_diff": {
+    "view_changes": "코드 변경 보기",
+    "title": "코드 변경",
+    "files": "파일 {{count}}개",
+    "file_list": "변경된 파일",
+    "binary": "바이너리 파일",
+    "renamed": "이름 변경됨",
+    "empty": "이 diff에는 파일 변경이 없습니다.",
+    "parse_failed": "이 diff를 분석할 수 없습니다. 파일을 다운로드하세요.",
+    "unified": "통합",
+    "split": "분할",
+    "collapse_file": "파일 접기",
+    "expand_file": "파일 펼치기"
   }
 }

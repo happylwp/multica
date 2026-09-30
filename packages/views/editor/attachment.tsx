@@ -51,6 +51,11 @@ import {
 import { useDownloadAttachment } from "./use-download-attachment";
 import { AttachmentCard, AttachmentFileCard } from "./attachment-card";
 import { canOpenPreview, getPreviewKind, type PreviewKind } from "./utils/preview";
+import {
+  CodeDiffAttachment,
+  isCodeDiffFilename,
+  isCodeDiffOverLimit,
+} from "../code-diff";
 import "./styles/attachment.css";
 
 // ---------------------------------------------------------------------------
@@ -406,6 +411,46 @@ export function Attachment({
     }
     if (shareUrl) openByUrl(shareUrl);
   };
+
+  // .diff/.patch: dedicated entry card. Over-limit files keep the original
+  // download card (no text-preview Eye). Identification lives only here.
+  if (!state.uploading && isCodeDiffFilename(state.filename)) {
+    if (!isCodeDiffOverLimit(state.record?.size_bytes)) {
+      return (
+        <CodeDiffAttachment
+          filename={state.filename}
+          attachmentId={state.attachmentId}
+          sizeBytes={state.record?.size_bytes}
+          onDownload={handleDownload}
+        />
+      );
+    }
+    if (layout === "card") {
+      return (
+        <AttachmentFileCard
+          filename={state.filename}
+          contentType={state.contentType}
+          sizeBytes={state.record?.size_bytes}
+          canPreview={false}
+          canDownload={!!shareUrl || !!state.attachmentId}
+          onPreview={handleDownload}
+          onDownload={handleDownload}
+          onDelete={editable ? onDelete : undefined}
+        />
+      );
+    }
+    return (
+      <AttachmentCard
+        filename={state.filename}
+        contentType={state.contentType}
+        attachmentId={state.attachmentId}
+        href={shareUrl || undefined}
+        onPreview={handleDownload}
+        onDownload={handleDownload}
+        onDelete={editable ? onDelete : undefined}
+      />
+    );
+  }
 
   if (kind === "image") {
     return (

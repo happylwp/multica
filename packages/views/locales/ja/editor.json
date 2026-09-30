@@ -164,5 +164,19 @@
     "commands": {
       "note": "メモを追加 — エージェントをトリガーしません"
     }
+  },
+  "code_diff": {
+    "view_changes": "コードの変更を表示",
+    "title": "コードの変更",
+    "files": "{{count}} ファイル",
+    "file_list": "変更ファイル",
+    "binary": "バイナリファイル",
+    "renamed": "名前変更",
+    "empty": "この diff にファイル変更はありません。",
+    "parse_failed": "この diff を解析できません。ファイルをダウンロードしてください。",
+    "unified": "ユニファイド",
+    "split": "分割",
+    "collapse_file": "ファイルを折りたたむ",
+    "expand_file": "ファイルを展開"
   }
 }
