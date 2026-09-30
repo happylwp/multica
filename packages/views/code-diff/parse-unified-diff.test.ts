@@ -109,6 +109,58 @@ describe("parseUnifiedDiff", () => {
     expect((added?.length ?? 0) <= CODE_DIFF_MAX_LINE_CHARS + 1).toBe(true);
   });
 
+  it("keeps SQL -- comments inside a hunk instead of starting a new file", () => {
+    const text = `diff --git a/schema.sql b/schema.sql
+--- a/schema.sql
++++ b/schema.sql
+@@ -1,4 +1,4 @@
+ SELECT 1;
+--- keep old
++-- keep new
+ FROM t;
+`;
+    const { files } = parseUnifiedDiff(text);
+    expect(files).toHaveLength(1);
+    expect(files[0]?.path).toBe("schema.sql");
+    expect(files[0]?.additions).toBe(1);
+    expect(files[0]?.deletions).toBe(1);
+    expect(files[0]?.hunks[0]).toContain("--- keep old");
+    expect(files[0]?.hunks[0]).toContain("+-- keep new");
+  });
+
+  it("keeps +++ content lines inside a hunk", () => {
+    const text = `diff --git a/notes.txt b/notes.txt
+--- a/notes.txt
++++ b/notes.txt
+@@ -1 +1,2 @@
+ heading
++++ foo
+`;
+    const { files } = parseUnifiedDiff(text);
+    expect(files).toHaveLength(1);
+    expect(files[0]?.path).toBe("notes.txt");
+    expect(files[0]?.additions).toBe(1);
+    expect(files[0]?.hunks[0]).toContain("+++ foo");
+  });
+
+  it("still splits concatenated plain diff -u files", () => {
+    const text = `--- a/a.ts
++++ b/a.ts
+@@ -1 +1 @@
+-old-a
++new-a
+--- a/b.ts
++++ b/b.ts
+@@ -1 +1 @@
+-old-b
++new-b
+`;
+    const { files } = parseUnifiedDiff(text);
+    expect(files.map((f) => f.path)).toEqual(["a.ts", "b.ts"]);
+    expect(files[0]?.hunks[0]).toContain("+new-a");
+    expect(files[1]?.hunks[0]).toContain("+new-b");
+  });
+
   it("accepts unquoted UTF-8 paths", () => {
     const text = `diff --git a/中文/路径.ts b/中文/路径.ts
 --- a/中文/路径.ts
