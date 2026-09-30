@@ -82,6 +82,37 @@ function clipLine(line: string): string {
   return `${line.slice(0, CODE_DIFF_MAX_LINE_CHARS)}…`;
 }
 
+function nextNonEmptyLine(lines: string[], afterIndex: number): string | undefined {
+  for (let i = afterIndex + 1; i < lines.length; i++) {
+    const candidate = lines[i];
+    if (candidate !== undefined && candidate !== "") return clipLine(candidate);
+  }
+  return undefined;
+}
+
+function inOpenHunk(draft: DraftFile | null): draft is DraftFile {
+  return !!draft && draft.currentHunk.length > 0;
+}
+
+function consumeHunkLine(draft: DraftFile, line: string): void {
+  if (line.startsWith("\\")) {
+    draft.currentHunk.push(line);
+    return;
+  }
+  const prefix = line[0];
+  if (prefix === "+") {
+    draft.additions += 1;
+    draft.currentHunk.push(line);
+  } else if (prefix === "-") {
+    draft.deletions += 1;
+    draft.currentHunk.push(line);
+  } else if (prefix === " " || prefix === undefined) {
+    draft.currentHunk.push(prefix === undefined ? ` ${line}` : line);
+  } else {
+    draft.currentHunk.push(line);
+  }
+}
+
 function parseGitPaths(line: string): { oldPath: string; newPath: string } | null {
   const rest = line.slice("diff --git ".length).trim();
   const quoted = /^("(?:\\.|[^"\\])*")\s+("(?:\\.|[^"\\])*")$/.exec(rest);
@@ -118,8 +149,8 @@ export function parseUnifiedDiff(text: string): ParseUnifiedDiffResult {
 
   const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
 
-  for (const raw of lines) {
-    const line = clipLine(raw);
+  for (let i = 0; i < lines.length; i++) {
+    const line = clipLine(lines[i] ?? "");
 
     if (line.startsWith("diff --git ")) {
       const current = startFile();
@@ -151,15 +182,30 @@ export function parseUnifiedDiff(text: string): ParseUnifiedDiffResult {
     }
 
     if (line.startsWith("--- ")) {
-      const existing = state.draft;
-      const alreadyHasHunks =
-        !!existing && (existing.hunks.length > 0 || existing.currentHunk.length > 0);
-      const current = !existing || alreadyHasHunks ? startFile() : existing;
+      // A deleted `-- comment` becomes `--- comment`. Only start a new file
+      // when we are already in a hunk AND the next non-empty line is `+++ `.
+      const open = state.draft;
+      if (inOpenHunk(open)) {
+        const next = nextNonEmptyLine(lines, i);
+        if (!next?.startsWith("+++ ")) {
+          consumeHunkLine(open, line);
+          continue;
+        }
+        const started = startFile();
+        started.oldPath = unescapeGitPath(line.slice(4));
+        continue;
+      }
+      const current = open ?? startFile();
       current.oldPath = unescapeGitPath(line.slice(4));
       continue;
     }
 
     if (line.startsWith("+++ ")) {
+      const open = state.draft;
+      if (inOpenHunk(open)) {
+        consumeHunkLine(open, line);
+        continue;
+      }
       ensureDraft().newPath = unescapeGitPath(line.slice(4));
       continue;
     }
@@ -173,24 +219,7 @@ export function parseUnifiedDiff(text: string): ParseUnifiedDiffResult {
 
     const open = state.draft;
     if (!open || open.currentHunk.length === 0) continue;
-
-    if (line.startsWith("\\")) {
-      open.currentHunk.push(line);
-      continue;
-    }
-
-    const prefix = line[0];
-    if (prefix === "+") {
-      open.additions += 1;
-      open.currentHunk.push(line);
-    } else if (prefix === "-") {
-      open.deletions += 1;
-      open.currentHunk.push(line);
-    } else if (prefix === " " || prefix === undefined) {
-      open.currentHunk.push(prefix === undefined ? ` ${line}` : line);
-    } else {
-      open.currentHunk.push(line);
-    }
+    consumeHunkLine(open, line);
   }
 
   if (state.draft && hasFileIdentity(state.draft)) files.push(finalize(state.draft));
