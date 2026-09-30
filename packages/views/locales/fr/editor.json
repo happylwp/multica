@@ -168,5 +168,19 @@
     "export_png": "Télécharger en PNG",
     "export_svg": "Télécharger en SVG",
     "export_source": "Télécharger le .mmd"
+  },
+  "code_diff": {
+    "view_changes": "Voir les changements de code",
+    "title": "Changements de code",
+    "files": "{{count}} fichiers",
+    "file_list": "Fichiers modifiés",
+    "binary": "Fichier binaire",
+    "renamed": "Renommé",
+    "empty": "Ce diff ne contient aucun fichier.",
+    "parse_failed": "Impossible d’analyser ce diff. Téléchargez le fichier.",
+    "unified": "Unifié",
+    "split": "Côte à côte",
+    "collapse_file": "Replier le fichier",
+    "expand_file": "Déplier le fichier"
   }
 }

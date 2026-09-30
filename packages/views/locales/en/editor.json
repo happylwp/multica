@@ -168,5 +168,19 @@
     "export_png": "Download PNG",
     "export_svg": "Download SVG",
     "export_source": "Download .mmd"
+  },
+  "code_diff": {
+    "view_changes": "View code changes",
+    "title": "Code changes",
+    "files": "{{count}} files",
+    "file_list": "Changed files",
+    "binary": "Binary file",
+    "renamed": "Renamed",
+    "empty": "This diff has no file changes.",
+    "parse_failed": "Couldn't parse this diff. Download the file instead.",
+    "unified": "Unified",
+    "split": "Split",
+    "collapse_file": "Collapse file",
+    "expand_file": "Expand file"
   }
 }

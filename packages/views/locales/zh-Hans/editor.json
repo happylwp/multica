@@ -164,5 +164,19 @@
     "export_png": "下载 PNG",
     "export_svg": "下载 SVG",
     "export_source": "下载 .mmd"
+  },
+  "code_diff": {
+    "view_changes": "查看代码变更",
+    "title": "代码变更",
+    "files": "{{count}} 个文件",
+    "file_list": "变更文件",
+    "binary": "二进制文件",
+    "renamed": "已重命名",
+    "empty": "此 diff 没有文件变更。",
+    "parse_failed": "无法解析此 diff，请下载文件查看。",
+    "unified": "统一",
+    "split": "分栏",
+    "collapse_file": "折叠文件",
+    "expand_file": "展开文件"
   }
 }

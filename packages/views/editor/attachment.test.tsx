@@ -41,6 +41,14 @@ vi.mock("./use-download-attachment", () => ({
   useDownloadAttachment: () => downloadMock,
 }));
 
+vi.mock("../code-diff", () => ({
+  isCodeDiffFilename: (filename: string) => /\.(diff|patch)$/i.test(filename),
+  isCodeDiffOverLimit: (n?: number) => typeof n === "number" && n > 2 * 1024 * 1024,
+  CodeDiffAttachment: ({ filename }: { filename: string }) => (
+    <div data-testid="code-diff-entry">{filename}</div>
+  ),
+}));
+
 vi.mock("../platform", () => ({
   openExternal: openExternalMock,
 }));
@@ -820,6 +828,30 @@ describe("Attachment — html dispatch", () => {
     // show the chrome instead of the iframe.
     expect(screen.getByText("report.html")).toBeTruthy();
     expect(document.querySelector("iframe")).toBeNull();
+  });
+});
+
+describe("Attachment — code-diff dispatch", () => {
+  it("renders the code-diff entry for a .diff record under the size cap", () => {
+    const att = makeRecord({
+      filename: "changes.diff",
+      content_type: "text/plain",
+      size_bytes: 2048,
+    });
+    renderWithQuery(<Attachment attachment={{ kind: "record", attachment: att }} />);
+    expect(screen.getByTestId("code-diff-entry").textContent).toBe("changes.diff");
+    expect(screen.queryByTitle("Preview")).toBeNull();
+  });
+
+  it("keeps the download card when a .diff is over the preview cap", () => {
+    const att = makeRecord({
+      filename: "huge.diff",
+      content_type: "text/plain",
+      size_bytes: 2 * 1024 * 1024 + 1,
+    });
+    renderWithQuery(<Attachment attachment={{ kind: "record", attachment: att }} />);
+    expect(screen.queryByTestId("code-diff-entry")).toBeNull();
+    expect(screen.getByText("huge.diff")).toBeTruthy();
   });
 });
 
