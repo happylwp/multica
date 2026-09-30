@@ -177,6 +177,8 @@
     "unified": "ユニファイド",
     "split": "分割",
     "collapse_file": "ファイルを折りたたむ",
-    "expand_file": "ファイルを展開"
+    "expand_file": "ファイルを展開",
+    "expand_context": "未変更の {{count}} 行を表示",
+    "render_failed": "このファイルを表示できません。"
   }
 }

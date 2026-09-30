@@ -10,19 +10,6 @@ const { loadDiffText } = vi.hoisted(() => ({
 
 vi.mock("./load-diff-text", () => ({ loadDiffText }));
 
-vi.mock("@multica/ui/components/common/theme-provider", () => ({
-  useTheme: () => ({ theme: "light", resolvedTheme: "light" }),
-}));
-
-vi.mock("@git-diff-view/react", () => ({
-  DiffView: ({ data }: { data: { hunks: string[] } }) => (
-    <pre data-testid="git-diff-view">{data.hunks.join("\n")}</pre>
-  ),
-  DiffModeEnum: { Unified: 4, Split: 2 },
-}));
-
-vi.mock("@git-diff-view/react/styles/diff-view.css", () => ({}));
-
 const SAMPLE = `diff --git a/a.ts b/a.ts
 --- a/a.ts
 +++ b/a.ts
