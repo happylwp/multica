@@ -177,6 +177,8 @@
     "unified": "통합",
     "split": "분할",
     "collapse_file": "파일 접기",
-    "expand_file": "파일 펼치기"
+    "expand_file": "파일 펼치기",
+    "expand_context": "변경 없는 {{count}}줄 표시",
+    "render_failed": "이 파일을 표시할 수 없습니다."
   }
 }

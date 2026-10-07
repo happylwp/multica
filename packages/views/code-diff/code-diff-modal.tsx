@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2, X } from "lucide-react";
+import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
 import {
   Dialog,
   DialogContent,
@@ -91,9 +92,46 @@ export function CodeDiffModal({
             <X className="size-4" />
           </Button>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col">{body}</div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <ErrorBoundary
+            resetKeys={[filename, loading, error, files?.length ?? 0]}
+            fallback={({ reset }) => (
+              <ModalCrash reset={reset} onDownload={onDownload} />
+            )}
+          >
+            {body}
+          </ErrorBoundary>
+        </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ModalCrash({
+  reset,
+  onDownload,
+}: {
+  reset: () => void;
+  onDownload: () => void;
+}) {
+  const { t } = useT("editor");
+  const { t: tUi } = useT("ui");
+  return (
+    <div
+      role="alert"
+      data-testid="code-diff-modal-error"
+      className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center"
+    >
+      <p className="text-body text-muted-foreground">{t(($) => $.code_diff.render_failed)}</p>
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" onClick={reset}>
+          {tUi(($) => $.error_boundary.try_again)}
+        </Button>
+        <Button type="button" variant="outline" onClick={onDownload}>
+          {t(($) => $.image.download)}
+        </Button>
+      </div>
+    </div>
   );
 }
 

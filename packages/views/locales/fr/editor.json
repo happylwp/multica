@@ -181,6 +181,8 @@
     "unified": "Unifié",
     "split": "Côte à côte",
     "collapse_file": "Replier le fichier",
-    "expand_file": "Déplier le fichier"
+    "expand_file": "Déplier le fichier",
+    "expand_context": "Afficher {{count}} lignes inchangées",
+    "render_failed": "Impossible d’afficher ce fichier."
   }
 }

@@ -181,6 +181,8 @@
     "unified": "Unified",
     "split": "Split",
     "collapse_file": "Collapse file",
-    "expand_file": "Expand file"
+    "expand_file": "Expand file",
+    "expand_context": "Show {{count}} unchanged lines",
+    "render_failed": "Couldn't render this file."
   }
 }
