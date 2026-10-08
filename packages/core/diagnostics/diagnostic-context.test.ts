@@ -85,6 +85,10 @@ describe("bucketDiagnosticPath", () => {
     expect(bucketDiagnosticPath("/acme/agents")).toBe("/:slug/agents");
   });
 
+  it("templates the orchestration page", () => {
+    expect(bucketDiagnosticPath("/acme/orchestration")).toBe("/:slug/orchestration");
+  });
+
   it("keeps pre-workspace routes intact", () => {
     expect(bucketDiagnosticPath("/login")).toBe("/login");
     expect(bucketDiagnosticPath("/workspaces/new")).toBe("/workspaces/new");
