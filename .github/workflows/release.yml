@@ -55,8 +55,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           # Deliberately independent from the minimum patch in server/go.mod:
-          # releases follow the newest 1.26 patch available to setup-go.
-          go-version: "1.26.x"
+          # releases pin 1.27.2; setup-go resolves 1.27.x to 1.27.1, which lacks the stdlib fixes.
+          go-version: "1.27.2"
           check-latest: true
           cache-dependency-path: server/go.sum
 
@@ -99,8 +99,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           # Deliberately independent from the minimum patch in server/go.mod:
-          # releases follow the newest 1.26 patch available to setup-go.
-          go-version: "1.26.x"
+          # releases pin 1.27.2; setup-go resolves 1.27.x to 1.27.1, which lacks the stdlib fixes.
+          go-version: "1.27.2"
           check-latest: true
           cache-dependency-path: server/go.sum
 
@@ -425,8 +425,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           # Deliberately independent from the minimum patch in server/go.mod:
-          # releases follow the newest 1.26 patch available to setup-go.
-          go-version: "1.26.x"
+          # releases pin 1.27.2; setup-go resolves 1.27.x to 1.27.1, which lacks the stdlib fixes.
+          go-version: "1.27.2"
           check-latest: true
           cache-dependency-path: server/go.sum
 
