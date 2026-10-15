@@ -1708,6 +1708,10 @@ const claimBatchMaxTasksCap = 32
 // it self-heals via the heartbeat path).
 func (h *Handler) ClaimTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	buildDeadline, responseDeadline := batchClaimDeadlines(r.Context(), start)
+	buildCtx, cancelBuild := context.WithDeadline(r.Context(), buildDeadline)
+	defer cancelBuild()
+	r = r.WithContext(buildCtx)
 	var req struct {
 		DaemonID   string   `json:"daemon_id"`
 		RuntimeIDs []string `json:"runtime_ids"`
@@ -1835,6 +1839,9 @@ func (h *Handler) ClaimTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]AgentTaskResponse, 0, len(claimed))
 	for i := range claimed {
+		if r.Context().Err() != nil {
+			break
+		}
 		task := claimed[i]
 		rt, ok := runtimeByID[uuidToString(task.RuntimeID)]
 		if !ok {
@@ -1856,8 +1863,7 @@ func (h *Handler) ClaimTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 		if failure != nil {
 			// Builder rejected this task (workspace isolation / chat-input);
 			// it has already settled the task where the failure requires it.
-			// Skip it — non-settling failures leave the task dispatched for
-			// the reclaim path.
+			// Undelivered claims are recovered below with a separate budget.
 			continue
 		}
 		if !rt.OwnerID.Valid {
@@ -1873,20 +1879,12 @@ func (h *Handler) ClaimTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 		if terr != nil {
 			slog.Error("batch claim: generate task token failed; requeueing claim",
 				"task_id", uuidToString(task.ID), "error", terr)
-			if _, rerr := h.TaskService.RequeueTaskAfterClaimFailure(r.Context(), task); rerr != nil {
-				slog.Error("batch claim: requeue after token-gen failure failed",
-					"task_id", uuidToString(task.ID), "error", rerr)
-			}
 			continue
 		}
 		remoteMCPToken, daemonTokens, derr := remoteMCPDaemonTokenForClaim(resp, rt)
 		if derr != nil {
 			slog.Error("batch claim: generate Remote MCP daemon token failed; requeueing claim",
 				"task_id", uuidToString(task.ID), "error", derr)
-			if _, rerr := h.TaskService.RequeueTaskAfterClaimFailure(r.Context(), task); rerr != nil {
-				slog.Error("batch claim: requeue after Remote MCP token failure failed",
-					"task_id", uuidToString(task.ID), "error", rerr)
-			}
 			continue
 		}
 		// Route through the SAME finalization as the per-runtime endpoint so the
@@ -1909,10 +1907,6 @@ func (h *Handler) ClaimTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 		if ferr != nil {
 			slog.Error("batch claim: finalize task claim failed; requeueing claim",
 				"task_id", uuidToString(task.ID), "error", ferr)
-			if _, rerr := h.TaskService.RequeueTaskAfterClaimFailure(r.Context(), task); rerr != nil {
-				slog.Error("batch claim: requeue after finalize failure failed",
-					"task_id", uuidToString(task.ID), "error", rerr)
-			}
 			continue
 		}
 		if deliveryFailure != nil {
@@ -1940,8 +1934,9 @@ func (h *Handler) ClaimTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 	// poll; a task that crossed fire_at during this request yields a bounded
 	// follow-up hint and is promoted on the next claim. If the lookup fails,
 	// omit the support bit so the daemon conservatively retains its ordinary
-	// PollInterval.
-	if len(out) < maxTasks && requestHasClientCapability(r, protocol.DaemonCapabilityClaimPollHintsV1) {
+	// PollInterval. Omitted claims also retain that short poll in case recovery
+	// failed or the task_available wakeup raced with this response.
+	if len(out) == len(claimed) && len(out) < maxTasks && requestHasClientCapability(r, protocol.DaemonCapabilityClaimPollHintsV1) {
 		nextDeferred, nextErr := h.Queries.NextDeferredTaskFireAtForRuntimes(r.Context(), db.NextDeferredTaskFireAtForRuntimesParams{
 			RuntimeIds:       authorized,
 			RuntimeStaleSecs: service.RuntimeClaimFreshnessSeconds,
@@ -1956,7 +1951,81 @@ func (h *Handler) ClaimTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if len(out) != len(claimed) {
+		// HTTP/1.1 cannot process another request until this handler returns.
+		// Keep the next claim off this connection while recovery is running.
+		w.Header().Set("Connection", "close")
+	}
 	writeMeasuredJSON(w, http.StatusOK, response)
+	if len(out) != len(claimed) {
+		// Deliver successful payloads before batch recovery side effects. Cache
+		// invalidation, event listeners and cross-node wakeups can use their own
+		// timeouts, so the recovery context alone cannot bound the response wait.
+		// HTTP already advertises Content-Length; flushing sends the whole body.
+		// WS keeps cleanup in the existing RPC worker after queuing its response.
+		cleanup := func() {
+			h.requeueUndeliveredBatchClaims(r.Context(), claimed, out, responseDeadline)
+		}
+		if !daemonws.AfterRPCResponse(r.Context(), cleanup) {
+			_ = http.NewResponseController(w).Flush()
+			cleanup()
+		}
+	}
+}
+
+const (
+	batchClaimRecoveryTimeout = time.Second
+	batchClaimResponseMargin  = 250 * time.Millisecond
+)
+
+// Reserve recovery and response time INSIDE the installed HTTP client's budget.
+// The WS response grace is for transport, not additional database work. Shorter
+// caller deadlines get proportionally smaller reserves; longer ones cannot
+// extend the HTTP-compatible batch budget.
+func batchClaimDeadlines(ctx context.Context, start time.Time) (build, response time.Time) {
+	deadline := start.Add(protocol.DaemonBatchClaimRequestTimeout)
+	if caller, ok := ctx.Deadline(); ok && caller.Before(deadline) {
+		deadline = caller
+	}
+	budget := max(deadline.Sub(start), 0)
+	response = deadline.Add(-min(batchClaimResponseMargin, budget/10))
+	build = response.Add(-min(batchClaimRecoveryTimeout, budget/4))
+	return build, response
+}
+
+// Share one deadline for recovery DB work across the batch. Post-commit cache,
+// event and wakeup side effects may outlive it, so callers deliver the response
+// first while retaining cleanup in the current HTTP/RPC request worker.
+func (h *Handler) requeueUndeliveredBatchClaims(ctx context.Context, claimed []db.AgentTaskQueue, delivered []AgentTaskResponse, responseDeadline time.Time) {
+	if len(claimed) == len(delivered) {
+		return
+	}
+	deliveredIDs := make(map[string]bool, len(delivered))
+	for _, task := range delivered {
+		deliveredIDs[task.ID] = true
+	}
+	deadline := time.Now().Add(batchClaimRecoveryTimeout)
+	if responseDeadline.Before(deadline) {
+		deadline = responseDeadline
+	}
+	ctx, cancel := context.WithDeadline(context.WithoutCancel(ctx), deadline)
+	defer cancel()
+	for _, task := range claimed {
+		if deliveredIDs[uuidToString(task.ID)] {
+			continue
+		}
+		if ctx.Err() != nil {
+			slog.Warn("batch claim: recovery budget exhausted; stale reclaim will recover remaining claims", "error", ctx.Err())
+			break
+		}
+		// The existing CAS matches runtime + dispatched_at and requires an
+		// unstarted dispatched row. Settled, already requeued, started, and
+		// newer claims must remain untouched (ErrNoRows).
+		if _, err := h.TaskService.RequeueTaskAfterClaimFailure(ctx, task); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			slog.Error("batch claim: undelivered claim recovery failed; stale reclaim will recover it",
+				"task_id", uuidToString(task.ID), "error", err)
+		}
+	}
 }
 
 func claimPollHintDelay(now, fireAt time.Time) time.Duration {
@@ -2118,9 +2187,9 @@ type claimBuildFailure struct {
 // The two failures settle differently:
 //
 //   - The read FAILED (transient: DB blip, timeout, reset). Preserve the
-//     just-dispatched task so the stale-dispatched reclaim redelivers it,
-//     exactly as the chat-input load does (MUL-4351). This is the reachable
-//     case and the one worth fixing.
+//     just-dispatched task for redelivery. The batch endpoint requeues
+//     omitted claims within its response budget; the singular endpoint
+//     retains stale-dispatch recovery, as for chat-input reads (MUL-4351).
 //   - The row is GONE (ErrNoRows). Cancel: the task can never run, and
 //     preserving it would spin in the reclaim loop forever. Legacy FKs
 //     currently keep every one of these states from arising —
@@ -2153,10 +2222,9 @@ func (h *Handler) rejectClaimSourceLoad(ctx context.Context, task *db.AgentTaskQ
 	}
 }
 
-// rejectClaimSkillLoad settles a claim whose agent skills could not be read.
-// It mirrors rejectClaimSourceLoad's transient branch — preserve the
-// just-dispatched task so the stale-dispatched reclaim redelivers it — because
-// this is the same kind of failure: a transient read on the claim-build path.
+// rejectClaimSkillLoad preserves a claim whose agent skills could not be read.
+// Like other transient source failures, the batch endpoint requeues it within
+// its response budget; the singular endpoint retains stale-dispatch recovery.
 //
 // Dispatching with whatever loaded is not the safer half-measure it looks
 // like. LoadAgentSkills reads the whole skill set in two queries, so a failure
@@ -3154,9 +3222,9 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 			inputLoadErr = err
 		}
 		// A read failure must NOT masquerade as "zero input". Preserve the
-		// just-dispatched task (the stale-dispatched reclaim redelivers it)
-		// and reject the claim with 5xx, rather than cancelling a valid direct
-		// task on a transient DB error (MUL-4351 review).
+		// just-dispatched task for batch recovery (or singular stale reclaim)
+		// and reject its payload, rather than cancelling a valid direct task
+		// on a transient DB error (MUL-4351 review).
 		if inputLoadErr != nil {
 			slog.Error("chat claim: load chat input messages failed; preserving task for redelivery",
 				"task_id", uuidToString(task.ID),
