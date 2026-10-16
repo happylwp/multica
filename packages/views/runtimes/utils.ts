@@ -218,6 +218,13 @@ const MODEL_PRICING: Record<
   //    usual 0.1x); Opus 4.5 through Opus 5 stay on the lower 5/25 Opus tier,
   //    and Opus 5.5 drops to 4/20 (cache reads at 0.05x input). --
   "claude-sonnet-5":     { input: 2,    output: 10,   cacheRead: 0.20, cacheWrite: 2.50 },
+  // Sonnet 5.5 keeps the 2/10 tier but halves the cache-read rate.
+  "claude-sonnet-5-5":   { input: 2,    output: 10,   cacheRead: 0.10, cacheWrite: 2.50 },
+  // Haiku 5.5 uses the <=100K prompt tier. Above 100K (including cache
+  // reads/writes), all four rates are 5x higher. Rollups lack per-request
+  // prompt sizes, so long requests are underestimated. Mirror the backend
+  // estimate in server/internal/metrics/pricing.go.
+  "claude-haiku-5-5":    { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.125 },
   "claude-fable-5-1":   { input: 10,   output: 50,   cacheRead: 0.25, cacheWrite: 12.50 },
   "claude-fable-5":     { input: 10,   output: 50,   cacheRead: 1.00, cacheWrite: 12.50 },
   "claude-opus-5-5":    { input: 4,    output: 20,   cacheRead: 0.20, cacheWrite: 5.00 },
