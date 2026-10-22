@@ -240,11 +240,11 @@ describe("Attachment — image dispatch", () => {
     // attachment.tsx for the rationale (MUL-3130 review follow-up).
     expect(img?.getAttribute("src")).toBe(att.download_url);
     expect(img?.getAttribute("alt")).toBe("shot.png");
-    expect(screen.getByTitle("View")).toBeTruthy();
-    expect(screen.getByTitle("Download")).toBeTruthy();
-    expect(screen.getByTitle("Copy link")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "View" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
     // Trash only shows in editable mode.
-    expect(screen.queryByTitle("Delete")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
   it("editable image shows Trash button and wires onDelete", () => {
@@ -257,7 +257,7 @@ describe("Attachment — image dispatch", () => {
         onDelete={onDelete}
       />,
     );
-    const trash = screen.getByTitle("Delete");
+    const trash = screen.getByRole("button", { name: "Delete" });
     fireEvent.click(trash);
     expect(onDelete).toHaveBeenCalled();
   });
@@ -284,7 +284,7 @@ describe("Attachment — image dispatch", () => {
     // (MUL-3130 review). The raw stored url is the fallback for
     // unresolved markdown only.
     expect(img?.getAttribute("src")).toBe(att.download_url);
-    fireEvent.click(screen.getByTitle("Download"));
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
     expect(downloadMock).toHaveBeenCalledWith("att-1");
   });
 
@@ -347,7 +347,7 @@ describe("Attachment — image dispatch", () => {
 
     expect(document.querySelector("img")?.getAttribute("src")).toBe(mediaUrl);
 
-    fireEvent.click(screen.getByTitle("View"));
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
 
     const imageSrcs = [...document.querySelectorAll("img")].map((img) =>
       img.getAttribute("src"),
@@ -379,7 +379,7 @@ describe("Attachment — image dispatch", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("View"));
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
 
     const imageSrcs = [...document.querySelectorAll("img")].map((img) =>
       img.getAttribute("src"),
@@ -617,7 +617,7 @@ describe("Attachment — image dispatch", () => {
     await waitFor(() => {
       expect(document.querySelector("img")?.getAttribute("src")).toBe(OBJECT_URL);
     });
-    fireEvent.click(screen.getByTitle("Copy link"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(markdownUrl));
   });
 
@@ -721,7 +721,7 @@ describe("Attachment — image dispatch", () => {
         }}
       />,
     );
-    fireEvent.click(screen.getByTitle("View"));
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
     expect(screen.queryByText("This file type can't be previewed.")).toBeNull();
     expect(screen.getByRole("dialog").querySelector("img")).toBeTruthy();
   });
@@ -738,7 +738,7 @@ describe("Attachment — image dispatch", () => {
     );
     const img = document.querySelector("img");
     expect(img?.getAttribute("src")).toBe("https://external.example/foo.png");
-    fireEvent.click(screen.getByTitle("Download"));
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
     expect(openByUrlMock).toHaveBeenCalledWith("https://external.example/foo.png");
     expect(downloadMock).not.toHaveBeenCalled();
   });
@@ -754,8 +754,8 @@ describe("Attachment — image dispatch", () => {
         }}
       />,
     );
-    expect(screen.queryByTitle("View")).toBeNull();
-    expect(screen.queryByTitle("Download")).toBeNull();
+    expect(screen.queryByRole("button", { name: "View" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download" })).toBeNull();
   });
 
   it("stable /api/attachments/<id>/download download_url falls through to the durable record.markdown_url for native <img> loadability (MUL-3192)", () => {
@@ -807,8 +807,8 @@ describe("Attachment — html dispatch", () => {
     });
     renderWithQuery(<Attachment attachment={{ kind: "record", attachment: att }} />);
     expect(screen.getByText("report.html")).toBeTruthy();
-    expect(screen.getByTitle("Preview")).toBeTruthy();
-    expect(screen.getByTitle("Download")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
     expect(document.querySelector("iframe")).toBeNull();
     expect(getAttachmentTextContentMock).not.toHaveBeenCalled();
   });
@@ -888,7 +888,7 @@ describe("Attachment — file-card dispatch", () => {
     );
 
     expect(screen.getByText("manual.pdf")).toBeTruthy();
-    fireEvent.mouseDown(screen.getByTitle("Download"));
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Download" }));
     expect(downloadMock).toHaveBeenCalledWith(id);
   });
 
@@ -905,8 +905,8 @@ describe("Attachment — file-card dispatch", () => {
     );
     expect(screen.getByText("Uploading {{filename}}")).toBeTruthy();
     // Preview/Download chrome is hidden while uploading.
-    expect(screen.queryByTitle("Preview")).toBeNull();
-    expect(screen.queryByTitle("Download")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download" })).toBeNull();
   });
 });
 
