@@ -90,4 +90,64 @@ describe("buildWorkflow", () => {
     expect(graph.lanes.some((l) => l.id === "lexc")).toBe(true);
     expect(graph.nodes.some((n) => n.tag === "待决策" && n.lane === "lexc")).toBe(true);
   });
+
+  it("keeps closed members off the canvas inside an active chain", () => {
+    const root = issue({ id: "a", identifier: "MARO-40", status: "in_progress" });
+    const doneImpl = issue({ id: "a1", identifier: "MARO-41", parent_issue_id: "a", stage: 1, status: "done" });
+    const openReview = issue({ id: "a2", identifier: "MARO-42", parent_issue_id: "a", stage: 2, status: "in_review" });
+    const graph = buildWorkflow([root, doneImpl, openReview]);
+    expect(graph.nodes.some((n) => n.issueId === "a1")).toBe(false);
+    expect(graph.nodes.some((n) => n.issueId === "a")).toBe(true);
+    expect(graph.nodes.some((n) => n.issueId === "a2")).toBe(true);
+    const ids = new Set(graph.nodes.map((n) => n.id));
+    expect(graph.edges.every((e) => ids.has(e.from) && ids.has(e.to))).toBe(true);
+  });
+
+  it("omits a closed root node while its open children stay visible", () => {
+    const root = issue({ id: "b", identifier: "MARO-43", status: "done" });
+    const child = issue({ id: "b1", identifier: "MARO-44", parent_issue_id: "b", stage: 1, status: "in_progress" });
+    const graph = buildWorkflow([root, child]);
+    expect(graph.nodes.some((n) => n.issueId === "b")).toBe(false);
+    expect(graph.nodes.some((n) => n.issueId === "b1")).toBe(true);
+  });
+
+  it("keeps closed rework out of the exception lane and stats", () => {
+    const closedRoot = issue({ id: "c", identifier: "MARO-45", status: "done" });
+    const closedRework = issue({
+      id: "c1",
+      identifier: "MARO-46",
+      parent_issue_id: "c",
+      stage: 1,
+      status: "done",
+      title: "【返工实现】旧缺陷",
+    });
+    const openRoot = issue({ id: "e", identifier: "MARO-47", status: "in_progress" });
+    const openRework = issue({
+      id: "e1",
+      identifier: "MARO-48",
+      parent_issue_id: "e",
+      stage: 1,
+      status: "todo",
+      title: "【返工实现】新缺陷",
+    });
+    const graph = buildWorkflow([closedRoot, closedRework, openRoot, openRework]);
+    expect(graph.nodes.some((n) => n.tag === "返工" && n.issueId === "c1")).toBe(false);
+    expect(graph.nodes.some((n) => n.tag === "返工" && n.issueId === "e1")).toBe(true);
+    expect(graph.stats.rework).toBe(1);
+  });
+
+  it("keeps a closed pending-decision issue out of the exception lane", () => {
+    const closedRoot = issue({ id: "f", identifier: "MARO-50", status: "done" });
+    const closedPending = issue({
+      id: "f1",
+      identifier: "MARO-51",
+      parent_issue_id: "f",
+      stage: 2,
+      status: "done",
+      labels: ["pending-decision"],
+    });
+    const graph = buildWorkflow([closedRoot, closedPending]);
+    expect(graph.lanes.some((l) => l.id === "lexc")).toBe(false);
+    expect(graph.stats.pending).toBe(0);
+  });
 });
