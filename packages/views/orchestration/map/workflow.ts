@@ -187,7 +187,9 @@ function expandFullChain(
   const root = chain.root;
   const visible: VisibleRec[] = [];
 
-  if (root) {
+  // 编排全景只显示未到终态、需要用户介入的任务；已 done/cancelled 的成员不再上画布。
+  // 分类仍用全量兄弟，保证 waitingOnPrior（等前序 stage）的判定不因过滤而失真。
+  if (root && !CLOSED.has(root.status)) {
     const cls = classifyIssue(root, children);
     const id = addNode(nodes, {
       id: nodeId("p", root),
@@ -206,6 +208,7 @@ function expandFullChain(
 
   const byStage = new Map<number, VisibleRec[]>();
   for (const child of children) {
+    if (CLOSED.has(child.status)) continue;
     const cls = classifyIssue(child, children);
     const stage = Math.max(1, cls.stage);
     const col = STAGE_COL[Math.min(stage, 5)] ?? 1;
@@ -229,7 +232,7 @@ function expandFullChain(
   }
 
   const stages = [...byStage.keys()].sort((a, b) => a - b);
-  if (root) {
+  if (root && !CLOSED.has(root.status)) {
     const first = byStage.get(stages[0] ?? -1) || [];
     first.forEach((rec, idx) => {
       edges.push(edge(
@@ -281,6 +284,8 @@ function collectExceptionEvents(chains: Chain[], cap = 6) {
     for (const issue of members) {
       const cls = classifyIssue(issue, chain.children);
       if (!cls.pending && !cls.rework) continue;
+      // 终态的返工/待决策已闭环，不再作为异常事件上画布。
+      if (CLOSED.has(issue.status)) continue;
       if (seen.has(issue.id)) continue;
       seen.add(issue.id);
       events.push({ issue, cls, chain, activity: activityTs(issue) });
@@ -307,10 +312,11 @@ export function summarize(issues: OrchestrationIssue[], index?: IssueIndex): Wor
       ? (childrenOf.get(issue.parent_issue_id) || [])
       : (childrenOf.get(issue.id) || []);
     const cls = classifyIssue(issue, siblings);
+    const closed = CLOSED.has(issue.status);
     if (cls.waitingOnPrior) waiting += 1;
     if (cls.trueBlocked) trueBlocked += 1;
-    if (cls.pending) pending += 1;
-    if (cls.rework) rework += 1;
+    if (cls.pending && !closed) pending += 1;
+    if (cls.rework && !closed) rework += 1;
     void byId;
   }
   return { waiting, trueBlocked, pending, rework, byStatus, total: issues.length };
