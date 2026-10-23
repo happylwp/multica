@@ -986,25 +986,46 @@ func detectImportSource(raw string) (importSource, string, error) {
 
 // --- ClawHub import ---
 
-// parseClawHubSlug extracts the skill slug from a clawhub.ai URL.
-func parseClawHubSlug(raw string) (string, error) {
+// parseClawHubSlug extracts the skill slug and, when the URL carries one, the
+// owner handle from a clawhub.ai URL. Links arrive as /{owner}/{slug} and
+// canonical pages as /{owner}/skills/{slug}; the owner must travel with the
+// slug because ClawHub rejects bare colliding slugs with 409 AMBIGUOUS_SKILL_SLUG.
+func parseClawHubSlug(raw string) (slug, owner string, err error) {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("invalid URL: %w", err)
+		return "", "", fmt.Errorf("invalid URL: %w", err)
 	}
 	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	// /{owner}/{slug} — take the last segment as the slug
-	if len(parts) == 2 {
-		return parts[1], nil
+	switch {
+	case len(parts) == 3 && parts[1] == "skills":
+		// /{owner}/skills/{slug}
+		return parts[2], parts[0], nil
+	case len(parts) == 2:
+		// /{owner}/{slug} — take the last segment as the slug
+		return parts[1], parts[0], nil
+	case len(parts) == 1 && parts[0] != "":
+		// /{slug}
+		return parts[0], "", nil
+	case raw == parsed.Host || parsed.Path == "" || parsed.Path == "/":
+		// Bare host (no path)
+		return "", "", fmt.Errorf("missing skill slug in URL")
+	default:
+		return "", "", fmt.Errorf("could not extract skill slug from URL: %s", raw)
 	}
-	if len(parts) == 1 && parts[0] != "" {
-		return parts[0], nil
+}
+
+// withClawHubOwner appends the owner disambiguation parameter to a ClawHub
+// skill endpoint URL so slug collisions across publishers resolve instead of
+// failing with 409 AMBIGUOUS_SKILL_SLUG.
+func withClawHubOwner(rawURL, owner string) string {
+	if owner == "" {
+		return rawURL
 	}
-	// Bare slug (no path)
-	if raw == parsed.Host || parsed.Path == "" || parsed.Path == "/" {
-		return "", fmt.Errorf("missing skill slug in URL")
+	sep := "?"
+	if strings.Contains(rawURL, "?") {
+		sep = "&"
 	}
-	return "", fmt.Errorf("could not extract skill slug from URL: %s", raw)
+	return rawURL + sep + "owner=" + url.QueryEscape(owner)
 }
 
 func searchClawHubSkills(httpClient *http.Client, query string) ([]SkillSearchCandidateResponse, error) {
@@ -1078,7 +1099,7 @@ func fetchClawHubInstallCount(httpClient *http.Client, slug string) (int64, bool
 }
 
 func fetchFromClawHub(ctx context.Context, httpClient *http.Client, rawURL string) (*importedSkill, error) {
-	slug, err := parseClawHubSlug(rawURL)
+	slug, owner, err := parseClawHubSlug(rawURL)
 	if err != nil {
 		return nil, err
 	}
@@ -1086,7 +1107,7 @@ func fetchFromClawHub(ctx context.Context, httpClient *http.Client, rawURL strin
 	apiBase := clawHubAPIBase
 
 	// 1. Fetch skill metadata
-	skillReq, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/skills/"+url.PathEscape(slug), nil)
+	skillReq, err := http.NewRequestWithContext(ctx, http.MethodGet, withClawHubOwner(apiBase+"/skills/"+url.PathEscape(slug), owner), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1119,7 +1140,7 @@ func fetchFromClawHub(ctx context.Context, httpClient *http.Client, rawURL strin
 
 	var filePaths []string
 	if latestVersion != "" {
-		vURL := fmt.Sprintf("%s/skills/%s/versions/%s", apiBase, url.PathEscape(slug), url.PathEscape(latestVersion))
+		vURL := withClawHubOwner(fmt.Sprintf("%s/skills/%s/versions/%s", apiBase, url.PathEscape(slug), url.PathEscape(latestVersion)), owner)
 		vReq, verr := http.NewRequestWithContext(ctx, http.MethodGet, vURL, nil)
 		if verr != nil {
 			return nil, verr
@@ -1139,14 +1160,18 @@ func fetchFromClawHub(ctx context.Context, httpClient *http.Client, rawURL strin
 	}
 
 	// 3. Download each file
+	origin := map[string]any{
+		"type":       "clawhub",
+		"source_url": rawURL,
+		"slug":       slug,
+	}
+	if owner != "" {
+		origin["owner"] = owner
+	}
 	result := &importedSkill{
 		name:        chSkill.DisplayName,
 		description: chSkill.Summary,
-		origin: map[string]any{
-			"type":       "clawhub",
-			"source_url": rawURL,
-			"slug":       slug,
-		},
+		origin:      origin,
 	}
 	if result.name == "" {
 		result.name = slug
@@ -1157,6 +1182,7 @@ func fetchFromClawHub(ctx context.Context, httpClient *http.Client, rawURL strin
 		if latestVersion != "" {
 			fileURL += "&version=" + url.QueryEscape(latestVersion)
 		}
+		fileURL = withClawHubOwner(fileURL, owner)
 		body, err := fetchRawFile(ctx, httpClient, fileURL)
 		if err != nil {
 			// Cap violations must abort: silently dropping a file would
