@@ -887,6 +887,96 @@ func TestFetchFromClawHub_ContextCancelledMidDownloadAborts(t *testing.T) {
 	}
 }
 
+// ClawHub resolves a bare slug with 409 AMBIGUOUS_SKILL_SLUG when several
+// publishers share it; imports from an owner-scoped URL must forward the
+// owner on every upstream call so those skills import at all.
+func TestFetchFromClawHub_PassesOwnerDisambiguation(t *testing.T) {
+	for name, rawURL := range map[string]string{
+		"link form /{owner}/{slug}":        "https://clawhub.ai/acme/shared-skill",
+		"canonical /{owner}/skills/{slug}": "https://clawhub.ai/acme/skills/shared-skill",
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.URL.Query().Get("owner"); got != "acme" {
+					t.Errorf("owner query = %q, want acme (path %s)", got, r.URL.Path)
+				}
+				switch {
+				case r.URL.Path == "/api/v1/skills/shared-skill":
+					writeJSON(w, http.StatusOK, map[string]any{
+						"skill": map[string]any{
+							"slug": "shared-skill", "displayName": "Shared", "summary": "s",
+							"tags": map[string]string{"latest": "1.0.0"},
+						},
+					})
+				case r.URL.Path == "/api/v1/skills/shared-skill/versions/1.0.0":
+					writeJSON(w, http.StatusOK, map[string]any{
+						"version": map[string]any{
+							"version": "1.0.0",
+							"files":   []map[string]any{{"path": "SKILL.md", "size": 16}},
+						},
+					})
+				case r.URL.Path == "/api/v1/skills/shared-skill/file":
+					if r.URL.Query().Get("path") != "SKILL.md" {
+						http.NotFound(w, r)
+						return
+					}
+					w.Write([]byte("---\nname: shared-skill\n---\nbody"))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			prev := clawHubAPIBase
+			clawHubAPIBase = srv.URL + "/api/v1"
+			t.Cleanup(func() { clawHubAPIBase = prev; srv.Close() })
+
+			imported, err := fetchFromClawHub(t.Context(), &http.Client{}, rawURL)
+			if err != nil {
+				t.Fatalf("fetchFromClawHub: %v", err)
+			}
+			if imported.name != "Shared" {
+				t.Fatalf("name = %q, want Shared", imported.name)
+			}
+			if imported.content == "" {
+				t.Fatal("content = empty, want SKILL.md body")
+			}
+			if got, ok := imported.origin["owner"]; !ok || got != "acme" {
+				t.Fatalf("origin[owner] = %v (ok=%v), want acme", got, ok)
+			}
+		})
+	}
+}
+
+func TestParseClawHubSlug(t *testing.T) {
+	tests := []struct {
+		raw       string
+		wantSlug  string
+		wantOwner string
+		wantErr   bool
+	}{
+		{raw: "https://clawhub.ai/acme/foo", wantSlug: "foo", wantOwner: "acme"},
+		{raw: "https://clawhub.ai/acme/skills/foo", wantSlug: "foo", wantOwner: "acme"},
+		{raw: "https://www.clawhub.ai/foo", wantSlug: "foo", wantOwner: ""},
+		{raw: "foo", wantSlug: "foo", wantOwner: ""},
+		{raw: "https://clawhub.ai", wantErr: true},
+		{raw: "https://clawhub.ai/a/b/c", wantErr: true},
+	}
+	for _, tt := range tests {
+		slug, owner, err := parseClawHubSlug(tt.raw)
+		if tt.wantErr {
+			if err == nil {
+				t.Fatalf("parseClawHubSlug(%q) err = nil, want error", tt.raw)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("parseClawHubSlug(%q): %v", tt.raw, err)
+		}
+		if slug != tt.wantSlug || owner != tt.wantOwner {
+			t.Errorf("parseClawHubSlug(%q) = (%q, %q), want (%q, %q)", tt.raw, slug, owner, tt.wantSlug, tt.wantOwner)
+		}
+	}
+}
+
 // A cancellation that lands while the top-level contents listing body is being
 // read (200 headers received, decode fails with "context canceled") must abort
 // the crawl, not be swallowed into a valid-SKILL.md/zero-files "success".
