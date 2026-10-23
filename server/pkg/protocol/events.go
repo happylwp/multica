@@ -71,6 +71,11 @@ const (
 	EventSkillUpdated = "skill:updated"
 	EventSkillDeleted = "skill:deleted"
 
+	// Asset profile events
+	EventAssetProfileCreated = "asset_profile:created"
+	EventAssetProfileUpdated = "asset_profile:updated"
+	EventAssetProfileDeleted = "asset_profile:deleted"
+
 	// Chat events
 	EventChatMessage = "chat:message"
 	EventChatDone    = "chat:done"

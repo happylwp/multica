@@ -2408,6 +2408,19 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				})
 			})
 
+			// Asset profiles — workspace-level JSONB documents (portfolio
+			// archives and similar structured records). `data` is opaque to
+			// the server; callers own its schema.
+			r.Route("/api/asset-profiles", func(r chi.Router) {
+				r.Get("/", h.ListAssetProfiles)
+				r.Post("/", h.CreateAssetProfile)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", h.GetAssetProfile)
+					r.Patch("/", h.UpdateAssetProfile)
+					r.Delete("/", h.DeleteAssetProfile)
+				})
+			})
+
 			// Dashboard — workspace-wide token + run-time rollups for the
 			// "/{slug}/dashboard" page. Optional ?project_id filter scopes
 			// the rollup to a single project.
