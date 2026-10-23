@@ -117,6 +117,16 @@ func (q *Queries) DeleteWorkspaceAgents(ctx context.Context, workspaceID pgtype.
 	return err
 }
 
+const deleteWorkspaceAssetProfiles = `-- name: DeleteWorkspaceAssetProfiles :exec
+DELETE FROM asset_profile WHERE asset_profile.workspace_id = $1
+`
+
+// Workspace-owned portfolio documents; no dependents.
+func (q *Queries) DeleteWorkspaceAssetProfiles(ctx context.Context, workspaceID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteWorkspaceAssetProfiles, workspaceID)
+	return err
+}
+
 const deleteWorkspaceAutopilotChildren = `-- name: DeleteWorkspaceAutopilotChildren :exec
 WITH
 deleted_triggers AS (

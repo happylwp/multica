@@ -625,6 +625,10 @@ WITH deleted_squads AS (
 )
 DELETE FROM skill WHERE skill.workspace_id = $1;
 
+-- name: DeleteWorkspaceAssetProfiles :exec
+-- Workspace-owned portfolio documents; no dependents.
+DELETE FROM asset_profile WHERE asset_profile.workspace_id = $1;
+
 -- name: DeleteWorkspacePluginData :exec
 -- Plugin relationships have no foreign keys or cascades. Storage and secrets
 -- hang off the installation, so both leaf tables are cleared through the
