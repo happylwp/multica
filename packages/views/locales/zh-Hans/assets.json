@@ -1,0 +1,40 @@
+{
+  "page": {
+    "title": "资产档案",
+    "description": "工作区结构化文档",
+    "new_button": "新建资产档案",
+    "empty_title": "暂无资产档案",
+    "empty_description": "资产档案保存结构化 JSON 文档，供智能体与自动化流程读取。",
+    "table": {
+      "name": "名称",
+      "description": "描述",
+      "updated": "更新时间"
+    },
+    "row_menu": "档案操作"
+  },
+  "detail": {
+    "back": "资产档案",
+    "document": "文档",
+    "copy": "复制文档",
+    "copied": "已复制",
+    "edit": "编辑",
+    "delete": "删除",
+    "delete_confirm_title": "删除资产档案？",
+    "delete_confirm_description": "此操作不可撤销。",
+    "updated": "更新时间",
+    "not_found": "资产档案不存在。"
+  },
+  "dialog": {
+    "create_title": "新建资产档案",
+    "edit_title": "编辑资产档案",
+    "name": "名称",
+    "name_placeholder": "例如：基金持仓档案",
+    "description": "描述",
+    "data": "JSON 文档",
+    "data_placeholder": "{ }",
+    "invalid_json": "不是有效的 JSON。",
+    "not_object": "文档必须是 JSON 对象。",
+    "save": "创建",
+    "saving": "保存中…"
+  }
+}

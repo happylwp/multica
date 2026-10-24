@@ -109,6 +109,12 @@ export type {
   MikaBootstrapResponse,
 } from "./agent";
 export { RUNTIME_PROFILE_PROTOCOL_FAMILIES, RUNTIME_PROFILE_RUNTIME_TYPES } from "./agent";
+export type {
+  AssetProfile,
+  AssetProfileSummary,
+  CreateAssetProfileRequest,
+  UpdateAssetProfileRequest,
+} from "./asset-profile";
 export type { Workspace, WorkspaceRepo, WorkspaceMcpServer, Member, MemberRole, User, MemberWithUser, Invitation, ShareLink, ShareLinkInfo } from "./workspace";
 export type {
   PluginInstallation,

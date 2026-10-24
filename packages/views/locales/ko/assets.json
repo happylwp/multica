@@ -1,0 +1,40 @@
+{
+  "page": {
+    "title": "Assets",
+    "description": "Structured workspace documents",
+    "new_button": "New asset profile",
+    "empty_title": "No asset profiles",
+    "empty_description": "Asset profiles hold structured JSON documents that agents and automations read.",
+    "table": {
+      "name": "Name",
+      "description": "Description",
+      "updated": "Updated"
+    },
+    "row_menu": "Profile actions"
+  },
+  "detail": {
+    "back": "Assets",
+    "document": "Document",
+    "copy": "Copy document",
+    "copied": "Copied",
+    "edit": "Edit",
+    "delete": "Delete",
+    "delete_confirm_title": "Delete asset profile?",
+    "delete_confirm_description": "This cannot be undone.",
+    "updated": "Updated",
+    "not_found": "Asset profile not found."
+  },
+  "dialog": {
+    "create_title": "New asset profile",
+    "edit_title": "Edit asset profile",
+    "name": "Name",
+    "name_placeholder": "e.g. Portfolio archive",
+    "description": "Description",
+    "data": "JSON document",
+    "data_placeholder": "{ }",
+    "invalid_json": "Not valid JSON.",
+    "not_object": "Document must be a JSON object.",
+    "save": "Create",
+    "saving": "Saving…"
+  }
+}

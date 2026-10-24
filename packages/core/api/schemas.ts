@@ -93,6 +93,8 @@ import type {
   Skill,
   SkillImportResult,
   SkillSummary,
+  AssetProfile,
+  AssetProfileSummary,
   Squad,
   TimelineEntry,
   User,
@@ -3655,6 +3657,42 @@ export const EMPTY_SKILL: Skill = {
 export const SkillSummaryListSchema = z.array(SkillSummarySchema).default([]);
 
 export const EMPTY_SKILL_SUMMARY_LIST: SkillSummary[] = [];
+
+// Asset profiles. `data` is a caller-owned JSON document the server never
+// inspects; `passthrough`-style tolerance is what `.loose()` already gives
+// the envelope, while `data` itself is parsed as a plain object so a
+// malformed document degrades to `{}` instead of failing the whole profile.
+export const AssetProfileSummarySchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  name: z.string(),
+  description: z.string().optional().default(""),
+  created_by: z.string().nullable().optional().default(null),
+  created_at: z.string().optional().default(""),
+  updated_at: z.string().optional().default(""),
+}).loose();
+
+export const AssetProfileSchema = AssetProfileSummarySchema.extend({
+  // `.catch({})` (not `.default`) so a `data` that exists but is not an
+  // object still parses — the envelope survives and the document renders
+  // empty rather than dropping the whole profile.
+  data: z.record(z.string(), z.unknown()).optional().catch({}).default({}),
+}).loose();
+
+export const AssetProfileSummaryListSchema = z.array(AssetProfileSummarySchema).default([]);
+
+export const EMPTY_ASSET_PROFILE_SUMMARY_LIST: AssetProfileSummary[] = [];
+
+export const EMPTY_ASSET_PROFILE: AssetProfile = {
+  id: "",
+  workspace_id: "",
+  name: "",
+  description: "",
+  data: {},
+  created_by: null,
+  created_at: "",
+  updated_at: "",
+};
 
 export const SkillImportExistingSkillSchema = z.object({
   id: z.string(),
