@@ -20,6 +20,8 @@ import { OrchestrationPage } from "@multica/views/orchestration";
 import { AutopilotsPage } from "@multica/views/autopilots/components";
 import { MyIssuesPage } from "@multica/views/my-issues";
 import { SkillsPage } from "@multica/views/skills";
+import { AssetProfilesPage } from "@multica/views/asset-profiles";
+import { AssetProfileDetailPage } from "./pages/asset-profile-detail-page";
 import { DesktopRuntimesPage } from "./components/desktop-runtimes-page";
 import { DesktopAgentsPage } from "./components/desktop-agents-page";
 import {
@@ -184,6 +186,12 @@ export const appRoutes: RouteObject[] = [
             path: "skills/:id",
             element: <SkillDetailPage />,
             handle: { title: "Skill" },
+          },
+          { path: "assets", element: <AssetProfilesPage />, handle: { title: "Assets" } },
+          {
+            path: "assets/:id",
+            element: <AssetProfileDetailPage />,
+            handle: { title: "Asset" },
           },
           { path: "agents", element: <DesktopAgentsPage />, handle: { title: "Agents" } },
           {

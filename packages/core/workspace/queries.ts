@@ -19,6 +19,7 @@ export const workspaceKeys = {
   squadMemberStatus: (wsId: string, squadId: string) =>
     ["workspaces", wsId, "squads", squadId, "members-status"] as const,
   skills: (wsId: string) => ["workspaces", wsId, "skills"] as const,
+  assetProfiles: (wsId: string) => ["workspaces", wsId, "asset-profiles"] as const,
   assigneeFrequency: (wsId: string) => ["workspaces", wsId, "assignee-frequency"] as const,
   mcpServers: (wsId: string) => ["workspaces", wsId, "mcp-servers"] as const,
 };
@@ -131,6 +132,21 @@ export function skillDetailOptions(wsId: string, skillId: string) {
     queryKey: [...workspaceKeys.skills(wsId), skillId] as const,
     queryFn: () => api.getSkill(skillId),
     enabled: !!skillId,
+  });
+}
+
+export function assetProfileListOptions(wsId: string) {
+  return queryOptions({
+    queryKey: workspaceKeys.assetProfiles(wsId),
+    queryFn: () => api.listAssetProfiles(),
+  });
+}
+
+export function assetProfileDetailOptions(wsId: string, profileId: string) {
+  return queryOptions({
+    queryKey: [...workspaceKeys.assetProfiles(wsId), profileId] as const,
+    queryFn: () => api.getAssetProfile(profileId),
+    enabled: !!wsId && !!profileId,
   });
 }
 

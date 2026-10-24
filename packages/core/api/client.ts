@@ -70,6 +70,10 @@ import type {
   SkillSummary,
   CreateSkillRequest,
   UpdateSkillRequest,
+  AssetProfile,
+  AssetProfileSummary,
+  CreateAssetProfileRequest,
+  UpdateAssetProfileRequest,
   SetAgentSkillsRequest,
   SetAgentRuntimeSkillEnabledRequest,
   PersonalAccessToken,
@@ -470,6 +474,10 @@ import {
   EMPTY_SKILL_SUMMARY_LIST,
   SkillImportResultSchema,
   EMPTY_SKILL_IMPORT_RESULT,
+  AssetProfileSchema,
+  AssetProfileSummaryListSchema,
+  EMPTY_ASSET_PROFILE,
+  EMPTY_ASSET_PROFILE_SUMMARY_LIST,
   IssueViewSchema,
   IssueViewListSchema,
   IssueViewPreferenceSchema,
@@ -3568,6 +3576,52 @@ export class ApiClient {
 
   async deleteSkill(id: string): Promise<void> {
     await this.fetch(`/api/skills/${id}`, { method: "DELETE" });
+  }
+
+  // Asset profiles. The list endpoint omits `data` by design (summaries);
+  // only `getAssetProfile` returns the document.
+  async listAssetProfiles(): Promise<AssetProfileSummary[]> {
+    const raw = await this.fetch<unknown>("/api/asset-profiles");
+    return parseWithFallback(
+      raw,
+      AssetProfileSummaryListSchema,
+      EMPTY_ASSET_PROFILE_SUMMARY_LIST,
+      { endpoint: "GET /api/asset-profiles" },
+    );
+  }
+
+  async getAssetProfile(id: string): Promise<AssetProfile> {
+    const raw = await this.fetch<unknown>(`/api/asset-profiles/${id}`);
+    return parseWithFallback(raw, AssetProfileSchema, EMPTY_ASSET_PROFILE, {
+      endpoint: `GET /api/asset-profiles/${id}`,
+    });
+  }
+
+  async createAssetProfile(data: CreateAssetProfileRequest): Promise<AssetProfile> {
+    const raw = await this.fetch<unknown>("/api/asset-profiles", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, AssetProfileSchema, EMPTY_ASSET_PROFILE, {
+      endpoint: "POST /api/asset-profiles",
+    });
+  }
+
+  async updateAssetProfile(
+    id: string,
+    data: UpdateAssetProfileRequest,
+  ): Promise<AssetProfile> {
+    const raw = await this.fetch<unknown>(`/api/asset-profiles/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, AssetProfileSchema, EMPTY_ASSET_PROFILE, {
+      endpoint: `PATCH /api/asset-profiles/${id}`,
+    });
+  }
+
+  async deleteAssetProfile(id: string): Promise<void> {
+    await this.fetch(`/api/asset-profiles/${id}`, { method: "DELETE" });
   }
 
   async importSkill(data: { url: string }): Promise<Skill> {
