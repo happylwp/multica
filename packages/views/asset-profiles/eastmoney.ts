@@ -72,7 +72,11 @@ export function fetchEastMoneyFund(code: string, timeoutMs = 8000): Promise<East
     function cleanup() {
       window.clearTimeout(timer);
       script.remove();
-      for (const key of GLOBAL_KEYS) delete w[key];
+      // Reflect.deleteProperty never throws: privacy extensions can leave
+      // non-configurable trackers on window, and a throwing `delete` here
+      // (outside any try/catch on the onerror/timeout paths) would surface
+      // as an uncaught TypeError and leave this promise pending forever.
+      for (const key of GLOBAL_KEYS) Reflect.deleteProperty(w, key);
     }
     script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js`;
     script.onload = () => {
