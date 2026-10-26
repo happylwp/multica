@@ -104,4 +104,25 @@ describe("FundPortfolioDashboard", () => {
 
     expect(screen.queryByText("Daily P&L")).toBeNull();
   });
+
+  it("keeps holding cards clickable when profile snapshots are present", () => {
+    renderDashboard({
+      ...PORTFOLIO_DOC,
+      fund_details: {
+        "161716": {
+          name: "招商双债增强债券(LOF)C",
+          returns: { m1: -0.36, m3: 0.22, m6: 1.43, y1: 2.9 },
+          fee: { source: 0.8, current: 0.08 },
+          manager: { name: "刘万锋", star: 5, workTime: "11年", fundSize: "418.60亿" },
+          allocation: { date: "2026-06-30", stock: 6.35, bond: 101, cash: 3.1 },
+          scale: { date: "2026-06-30", value: 56.77 },
+          trend: [{ d: "10-20", v: 1.79 }, { d: "10-23", v: 1.793 }],
+          fetched_at: "2026-10-23",
+        },
+      },
+    });
+
+    // Holding card still renders inside the detail-dialog trigger.
+    expect(screen.getAllByText("Dual bond").length).toBeGreaterThanOrEqual(2);
+  });
 });

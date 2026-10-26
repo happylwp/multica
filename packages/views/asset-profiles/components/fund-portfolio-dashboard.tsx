@@ -39,6 +39,7 @@ import {
   type FundPortfolio,
 } from "../fund-portfolio";
 import { AnimatedNumber } from "./animated-number";
+import { FundDetailDialog } from "./fund-detail-dialog";
 
 // CN market convention: red = gain, green = loss. Both stops stay readable
 // in light and dark themes.
@@ -454,9 +455,19 @@ export function FundPortfolioDashboard({
             {portfolio.funds.map((f, i) => {
               const weight =
                 totals.market_value > 0 ? (f.market_value / totals.market_value) * 100 : 0;
+              const fundDaily = portfolio.daily_pnl
+                .map((d) => ({ date: d.date, value: d.per_fund[f.code] }))
+                .filter((d): d is { date: string; value: number } => d.value != null);
               return (
-                <motion.div key={f.code} {...rise(0.1 + i * 0.05)}>
-                  <Card size="sm" className="h-full">
+                <FundDetailDialog
+                  key={f.code}
+                  fund={f}
+                  detail={portfolio.fund_details[f.code]}
+                  dailyPnl={fundDaily}
+                  weight={weight}
+                  delay={0.1 + i * 0.05}
+                  trigger={
+                    <Card size="sm" className="h-full">
                     <CardHeader>
                       <CardTitle className="flex items-baseline gap-2">
                         <span className="min-w-0 truncate" title={f.name}>
@@ -517,7 +528,8 @@ export function FundPortfolioDashboard({
                       ) : null}
                     </CardContent>
                   </Card>
-                </motion.div>
+                  }
+                />
               );
             })}
           </div>

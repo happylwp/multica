@@ -45,6 +45,34 @@ const dailyPnlSchema = z.object({
   source: z.string().optional(),
 });
 
+// Fund profile snapshot from fund.eastmoney.com, refreshed daily by the
+// nav-sync job alongside the positions. Every field is nullable: East Money
+// publishes profile vars per fund class and any one can be absent.
+const nullableNumber = z.number().nullable().catch(null);
+const fundDetailSchema = z.object({
+  name: z.string().nullable().catch(null),
+  returns: z
+    .object({ m1: nullableNumber, m3: nullableNumber, m6: nullableNumber, y1: nullableNumber })
+    .catch({ m1: null, m3: null, m6: null, y1: null }),
+  fee: z.object({ source: nullableNumber, current: nullableNumber }).catch({ source: null, current: null }),
+  manager: z
+    .object({
+      name: z.string().nullable().catch(null),
+      star: nullableNumber,
+      workTime: z.string().nullable().catch(null),
+      fundSize: z.string().nullable().catch(null),
+    })
+    .nullable()
+    .catch(null),
+  allocation: z
+    .object({ date: z.string().nullable().catch(null), stock: nullableNumber, bond: nullableNumber, cash: nullableNumber })
+    .nullable()
+    .catch(null),
+  scale: z.object({ date: z.string().nullable().catch(null), value: nullableNumber }).nullable().catch(null),
+  trend: z.array(z.object({ d: z.string().catch(""), v: z.number().catch(0) })).catch([]),
+  fetched_at: z.string().catch(""),
+});
+
 export const fundPortfolioSchema = z.object({
   funds: z.array(fundSchema).min(1),
   totals: totalsSchema.optional(),
@@ -52,6 +80,7 @@ export const fundPortfolioSchema = z.object({
   plans: z.array(planSchema).catch([]),
   rules: z.record(z.string(), z.string()).catch({}),
   daily_pnl: z.array(dailyPnlSchema).catch([]),
+  fund_details: z.record(z.string(), fundDetailSchema).catch({}),
   note: z.string().optional(),
   data_source: z.string().optional(),
   updated_at: z.string().optional(),
@@ -60,6 +89,7 @@ export const fundPortfolioSchema = z.object({
 export type FundPosition = z.infer<typeof fundSchema>;
 export type FundPlan = z.infer<typeof planSchema>;
 export type FundDailyPnl = z.infer<typeof dailyPnlSchema>;
+export type FundDetail = z.infer<typeof fundDetailSchema>;
 export type FundPortfolio = z.infer<typeof fundPortfolioSchema>;
 
 export function parseFundPortfolio(data: unknown): FundPortfolio | null {
