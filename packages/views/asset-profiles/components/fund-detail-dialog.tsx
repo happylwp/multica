@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import {
   Area,
@@ -50,6 +50,16 @@ const rise = (delay: number) => ({
 
 type DailyPnlPoint = { date: string; value: number };
 
+// One disclosed holding row, whichever bucket it comes from; only stock
+// rows carry the sector and quarter-over-quarter change annotations.
+type HoldingRow = {
+  code: string | null;
+  name: string | null;
+  pct: number | null;
+  sector?: string | null;
+  chg_type?: string | null;
+};
+
 /**
  * Per-fund detail dialog. `trigger` wraps each holding card on the
  * dashboard; the dialog layers the East Money profile snapshot (identity,
@@ -72,6 +82,14 @@ export function FundDetailDialog({
   trigger: ReactNode;
 }) {
   const { t } = useT("assets");
+  // Allocation buckets that disclose holdings: clicking one expands the
+  // detail panel below (cash/other disclose nothing and stay inert).
+  const [allocTab, setAllocTab] = useState<"stock" | "bond" | "fund" | null>(null);
+  const positions = detail?.positions ?? null;
+  const stockCount = positions?.stocks.length ?? 0;
+  const bondCount = positions?.bonds.length ?? 0;
+  const fundCount = positions?.funds.length ?? 0;
+  const hasEtf = positions?.etf != null;
 
   const returns: { key: "m1" | "m3" | "m6" | "y1"; label: string; value: number | null }[] = [
     { key: "m1", label: t(($) => $.fund_detail.m1), value: detail?.returns.m1 ?? null },
@@ -80,10 +98,17 @@ export function FundDetailDialog({
     { key: "y1", label: t(($) => $.fund_detail.y1), value: detail?.returns.y1 ?? null },
   ];
   const allocations = [
-    { key: "alloc_stock" as const, value: detail?.allocation?.stock ?? null },
-    { key: "alloc_bond" as const, value: detail?.allocation?.bond ?? null },
-    { key: "alloc_cash" as const, value: detail?.allocation?.cash ?? null },
+    { label: t(($) => $.fund_detail.alloc_stock), value: detail?.allocation?.stock ?? null, tab: "stock" as const },
+    { label: t(($) => $.fund_detail.alloc_bond), value: detail?.allocation?.bond ?? null, tab: "bond" as const },
+    { label: t(($) => $.fund_detail.alloc_cash), value: detail?.allocation?.cash ?? null, tab: null },
+    { label: t(($) => $.fund_detail.alloc_fund), value: detail?.allocation?.fund ?? null, tab: "fund" as const },
+    { label: t(($) => $.fund_detail.alloc_rest), value: detail?.allocation?.other ?? null, tab: null },
   ];
+  const tabDetailCount: Record<"stock" | "bond" | "fund", number> = {
+    stock: stockCount,
+    bond: bondCount,
+    fund: fundCount + (hasEtf ? 1 : 0),
+  };
 
   return (
     <Dialog>
@@ -326,16 +351,99 @@ export function FundDetailDialog({
                       {t(($) => $.fund_detail.allocation)}
                       {detail.allocation?.date ? ` · ${detail.allocation.date}` : ""}
                     </span>
-                    <div className="grid gap-1 sm:grid-cols-3">
-                      {allocations.map((a) => (
-                        <div key={a.key} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1">
-                          <span className="text-caption">{t(($) => $.fund_detail[a.key])}</span>
-                          <span className="font-mono text-caption tabular-nums">
-                            {a.value == null ? "—" : `${a.value.toFixed(2)}%`}
-                          </span>
-                        </div>
-                      ))}
+                    <div className="grid grid-cols-2 gap-1 sm:grid-cols-5">
+                      {allocations.map((a) => {
+                        const clickable = a.tab != null && tabDetailCount[a.tab] > 0;
+                        const selected = a.tab != null && allocTab === a.tab;
+                        const Tag = clickable ? "button" : "div";
+                        return (
+                          <Tag
+                            key={a.label}
+                            {...(clickable
+                              ? { type: "button" as const, onClick: () => setAllocTab(selected ? null : a.tab) }
+                              : {})}
+                            className={`flex items-center justify-between gap-1 rounded-md px-2 py-1 text-left ${
+                              selected ? "bg-primary/10 ring-1 ring-primary/30" : "bg-muted/50"
+                            } ${clickable ? "cursor-pointer transition-colors hover:bg-muted" : ""}`}
+                          >
+                            <span className="text-caption">{a.label}</span>
+                            <span className="font-mono text-caption tabular-nums">
+                              {a.value == null ? "—" : `${a.value.toFixed(2)}%`}
+                            </span>
+                          </Tag>
+                        );
+                      })}
                     </div>
+                    {allocTab != null ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                        className="rounded-md border p-2"
+                      >
+                        <span className="text-caption font-medium text-muted-foreground">
+                          {allocTab === "stock"
+                            ? t(($) => $.fund_detail.positions_stock)
+                            : allocTab === "bond"
+                              ? t(($) => $.fund_detail.positions_bond)
+                              : t(($) => $.fund_detail.positions_fund)}
+                        </span>
+                        <div className="mt-1 space-y-1">
+                          {allocTab === "fund" && positions?.etf ? (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="flex items-baseline gap-1.5 truncate">
+                                <span className="text-body">{positions.etf.name ?? positions.etf.code}</span>
+                                <span className="font-mono text-caption text-muted-foreground">{positions.etf.code}</span>
+                              </span>
+                              <span className="shrink-0 font-mono text-caption tabular-nums text-muted-foreground">
+                                {t(($) => $.fund_detail.target_etf)}
+                              </span>
+                            </div>
+                          ) : null}
+                          {(
+                            [
+                              { list: positions?.stocks ?? [], key: "stock" },
+                              { list: positions?.bonds ?? [], key: "bond" },
+                              { list: positions?.funds ?? [], key: "fund" },
+                            ] as { key: string; list: HoldingRow[] }[]
+                          )
+                            .find((x) => x.key === allocTab)
+                            ?.list.map((item) => {
+                            const sector = item.sector ?? null;
+                            const chgType = item.chg_type ?? null;
+                            return (
+                              <div key={`${item.code}-${item.name}`} className="flex items-center justify-between gap-2">
+                                <span className="flex min-w-0 items-baseline gap-1.5">
+                                  <span className="truncate text-body">{item.name ?? item.code}</span>
+                                  <span className="shrink-0 font-mono text-caption text-muted-foreground">{item.code}</span>
+                                  {sector ? (
+                                    <span className="shrink-0 text-caption text-muted-foreground">{sector}</span>
+                                  ) : null}
+                                  {chgType ? (
+                                    <Badge
+                                      variant="outline"
+                                      className={`h-4 shrink-0 px-1 text-[10px] ${
+                                        chgType === "减持" ? "text-emerald-600" : "text-red-500"
+                                      }`}
+                                    >
+                                      {chgType}
+                                    </Badge>
+                                  ) : null}
+                                </span>
+                                <span className="shrink-0 font-mono text-caption tabular-nums">
+                                  {item.pct == null ? "—" : `${item.pct.toFixed(2)}%`}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          {allocTab != null && tabDetailCount[allocTab] === 0 ? (
+                            <p className="text-caption text-muted-foreground">
+                              {t(($) => $.fund_detail.no_positions)}
+                            </p>
+                          ) : null}
+                        </div>
+                      </motion.div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

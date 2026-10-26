@@ -81,7 +81,14 @@
     "allocation": "资产配置（占净值）",
     "alloc_stock": "股票",
     "alloc_bond": "债券",
-    "alloc_cash": "现金"
+    "alloc_cash": "现金",
+    "alloc_fund": "基金",
+    "positions_stock": "前十大重仓股",
+    "positions_bond": "重仓债券",
+    "positions_fund": "基金持仓",
+    "target_etf": "目标 ETF",
+    "no_positions": "暂无披露明细",
+    "alloc_rest": "其他"
   },
   "fund_editor": {
     "open": "编辑持仓",

@@ -81,7 +81,14 @@
     "allocation": "Allocation (% of NAV)",
     "alloc_stock": "Stock",
     "alloc_bond": "Bond",
-    "alloc_cash": "Cash"
+    "alloc_cash": "Cash",
+    "alloc_fund": "Funds",
+    "positions_stock": "Top 10 stock holdings",
+    "positions_bond": "Bond holdings",
+    "positions_fund": "Fund holdings",
+    "target_etf": "Target ETF",
+    "no_positions": "No disclosed holdings",
+    "alloc_rest": "Other"
   },
   "fund_editor": {
     "open": "Edit holdings",

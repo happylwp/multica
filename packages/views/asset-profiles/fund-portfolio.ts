@@ -65,7 +65,46 @@ const fundDetailSchema = z.object({
     .nullable()
     .catch(null),
   allocation: z
-    .object({ date: z.string().nullable().catch(null), stock: nullableNumber, bond: nullableNumber, cash: nullableNumber })
+    .object({
+      date: z.string().nullable().catch(null),
+      stock: nullableNumber,
+      bond: nullableNumber,
+      cash: nullableNumber,
+      fund: nullableNumber,
+      other: nullableNumber,
+      net_asset: nullableNumber,
+    })
+    .nullable()
+    .catch(null),
+  // Holdings disclosed in the latest report (East Money mobile F10 API):
+  // top-10 stocks, top bonds, FOF sub-funds, and the target ETF for feeder
+  // funds. All three lists can be empty — bond funds disclose no stocks and
+  // equity funds no sub-funds.
+  positions: z
+    .object({
+      stocks: z
+        .array(
+          z.object({
+            code: z.string().nullable().catch(null),
+            name: z.string().nullable().catch(null),
+            pct: nullableNumber,
+            sector: z.string().nullable().catch(null),
+            chg_type: z.string().nullable().catch(null),
+            chg: nullableNumber,
+          }),
+        )
+        .catch([]),
+      bonds: z
+        .array(z.object({ code: z.string().nullable().catch(null), name: z.string().nullable().catch(null), pct: nullableNumber }))
+        .catch([]),
+      funds: z
+        .array(z.object({ code: z.string().nullable().catch(null), name: z.string().nullable().catch(null), pct: nullableNumber }))
+        .catch([]),
+      etf: z
+        .object({ code: z.string().nullable().catch(null), name: z.string().nullable().catch(null) })
+        .nullable()
+        .catch(null),
+    })
     .nullable()
     .catch(null),
   scale: z.object({ date: z.string().nullable().catch(null), value: nullableNumber }).nullable().catch(null),
