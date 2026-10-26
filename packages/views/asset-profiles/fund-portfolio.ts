@@ -36,12 +36,22 @@ const totalsSchema = z.object({
   pnl_pct: z.number().optional(),
 });
 
+// One entry per trading day, appended by the daily nav-sync job. per_fund
+// maps fund code to that day's realized gain/loss in CNY.
+const dailyPnlSchema = z.object({
+  date: z.string(),
+  per_fund: z.record(z.string(), z.number()).catch({}),
+  total: z.number().catch(0),
+  source: z.string().optional(),
+});
+
 export const fundPortfolioSchema = z.object({
   funds: z.array(fundSchema).min(1),
   totals: totalsSchema.optional(),
   structure_pct: z.record(z.string(), z.number()).catch({}),
   plans: z.array(planSchema).catch([]),
   rules: z.record(z.string(), z.string()).catch({}),
+  daily_pnl: z.array(dailyPnlSchema).catch([]),
   note: z.string().optional(),
   data_source: z.string().optional(),
   updated_at: z.string().optional(),
@@ -49,6 +59,7 @@ export const fundPortfolioSchema = z.object({
 
 export type FundPosition = z.infer<typeof fundSchema>;
 export type FundPlan = z.infer<typeof planSchema>;
+export type FundDailyPnl = z.infer<typeof dailyPnlSchema>;
 export type FundPortfolio = z.infer<typeof fundPortfolioSchema>;
 
 export function parseFundPortfolio(data: unknown): FundPortfolio | null {

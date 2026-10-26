@@ -18,12 +18,18 @@ describe("parseFundPortfolio", () => {
       structure_pct: { gold: 12 },
       plans: [{ day: 15, code: "000307", amount: 1800 }],
       rules: { gold_ceiling: "20%" },
+      daily_pnl: [
+        { date: "2026-10-22", per_fund: { "161716": 67.32 }, total: 67.32, source: "user_app" },
+      ],
       extra_field: true,
     });
 
     expect(parsed).not.toBeNull();
     expect(parsed?.funds).toHaveLength(2);
     expect(parsed?.rules?.gold_ceiling).toBe("20%");
+    expect(parsed?.daily_pnl).toEqual([
+      { date: "2026-10-22", per_fund: { "161716": 67.32 }, total: 67.32, source: "user_app" },
+    ]);
     expect(parsed).not.toHaveProperty("extra_field");
   });
 
@@ -48,10 +54,14 @@ describe("parseFundPortfolio", () => {
       funds: [fund],
       structure_pct: "oops",
       plans: 3,
+      daily_pnl: [{ date: "2026-10-22", total: "oops" }],
     });
 
     expect(parsed?.structure_pct).toEqual({});
     expect(parsed?.plans).toEqual([]);
+    expect(parsed?.daily_pnl).toEqual([
+      { date: "2026-10-22", per_fund: {}, total: 0 },
+    ]);
   });
 });
 

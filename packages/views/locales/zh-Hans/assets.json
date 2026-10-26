@@ -44,7 +44,9 @@
     "weight": "占比",
     "structure_gold": "黄金",
     "structure_fixed_income": "固收",
-    "structure_equity_dividend": "红利权益"
+    "structure_equity_dividend": "红利权益",
+    "daily_pnl": "每日盈亏",
+    "daily_pnl_window": "近 {{days}} 个交易日 {{sum}}"
   },
   "dialog": {
     "create_title": "新建资产档案",
