@@ -37,10 +37,13 @@ const totalsSchema = z.object({
 });
 
 // One entry per trading day, appended by the daily nav-sync job. per_fund
-// maps fund code to that day's realized gain/loss in CNY.
+// maps fund code to that day's realized gain/loss in CNY; per_fund_pct is
+// the same day's cumulative-NAV return in percent (dividend-reinvested,
+// matching the CNY figure).
 const dailyPnlSchema = z.object({
   date: z.string(),
   per_fund: z.record(z.string(), z.number()).catch({}),
+  per_fund_pct: z.record(z.string(), z.number()).catch({}),
   total: z.number().catch(0),
   source: z.string().optional(),
 });

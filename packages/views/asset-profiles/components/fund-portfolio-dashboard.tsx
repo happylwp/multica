@@ -405,25 +405,29 @@ export function FundPortfolioDashboard({
                                 <span className="font-mono text-caption font-medium tabular-nums">
                                   {row.date} · {formatPnL(row.total)}
                                 </span>
-                                {details.map(([code, v]) => (
-                                  <span
-                                    key={code}
-                                    className="flex items-baseline justify-between gap-3 font-mono text-caption tabular-nums"
-                                  >
-                                    <span className="min-w-0 truncate">
-                                      {nameByCode.get(code) ?? code}
-                                    </span>
+                                {details.map(([code, v]) => {
+                                  const pct = row.per_fund_pct[code];
+                                  return (
                                     <span
-                                      className={
-                                        v >= 0
-                                          ? "text-red-500 dark:text-red-400"
-                                          : "text-emerald-600 dark:text-emerald-400"
-                                      }
+                                      key={code}
+                                      className="flex items-baseline justify-between gap-3 font-mono text-caption tabular-nums"
                                     >
-                                      {formatPnL(v)}
+                                      <span className="min-w-0 truncate">
+                                        {nameByCode.get(code) ?? code}
+                                      </span>
+                                      <span
+                                        className={
+                                          v >= 0
+                                            ? "text-red-500 dark:text-red-400"
+                                            : "text-emerald-600 dark:text-emerald-400"
+                                        }
+                                      >
+                                        {formatPnL(v)}
+                                        {pct != null ? ` (${pct >= 0 ? "+" : ""}${pct}%)` : ""}
+                                      </span>
                                     </span>
-                                  </span>
-                                ))}
+                                  );
+                                })}
                               </div>
                             );
                           }}
@@ -455,9 +459,11 @@ export function FundPortfolioDashboard({
             {portfolio.funds.map((f, i) => {
               const weight =
                 totals.market_value > 0 ? (f.market_value / totals.market_value) * 100 : 0;
-              const fundDaily = portfolio.daily_pnl
-                .map((d) => ({ date: d.date, value: d.per_fund[f.code] }))
-                .filter((d): d is { date: string; value: number } => d.value != null);
+              const fundDaily = portfolio.daily_pnl.flatMap((d) => {
+                const value = d.per_fund[f.code];
+                if (value == null) return [];
+                return [{ date: d.date, value, pct: d.per_fund_pct[f.code] }];
+              });
               return (
                 <FundDetailDialog
                   key={f.code}

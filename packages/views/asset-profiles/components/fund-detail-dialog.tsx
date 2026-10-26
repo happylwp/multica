@@ -48,7 +48,7 @@ const rise = (delay: number) => ({
   transition: { delay, duration: 0.35, ease: "easeOut" as const },
 });
 
-type DailyPnlPoint = { date: string; value: number };
+type DailyPnlPoint = { date: string; value: number; pct?: number };
 
 // One disclosed holding row, whichever bucket it comes from; only stock
 // rows carry the sector and quarter-over-quarter change annotations.
@@ -223,7 +223,13 @@ export function FundDetailDialog({
                         <ChartTooltipContent
                           hideLabel
                           hideIndicator
-                          formatter={(value) => formatPnL(Number(value))}
+                          formatter={(_value, _name, item) => {
+                            const point = item?.payload as DailyPnlPoint | undefined;
+                            if (!point) return null;
+                            return `${point.date.slice(5)}: ${formatPnL(point.value)}${
+                              point.pct != null ? ` (${point.pct >= 0 ? "+" : ""}${point.pct}%)` : ""
+                            }`;
+                          }}
                         />
                       }
                     />
