@@ -115,6 +115,32 @@ const fundDetailSchema = z.object({
   fetched_at: z.string().catch(""),
 });
 
+// Watchlist: a virtual portfolio independent of the real holdings. Weights
+// are user-defined percentages; the daily sync rebuilds the weighted return
+// series from `baseline` on every run.
+const watchlistFundSchema = z.object({
+  code: z.string(),
+  name: z.string().catch(""),
+  weight: z.number().catch(0),
+  added_at: z.string().catch(""),
+});
+
+const watchlistSchema = z
+  .object({
+    name: z.string().catch(""),
+    funds: z.array(watchlistFundSchema).catch([]),
+    baseline: z.string().catch(""),
+  })
+  .nullable()
+  .catch(null);
+
+const watchlistPnlSchema = z.object({
+  date: z.string(),
+  per_fund_pct: z.record(z.string(), z.number()).catch({}),
+  weighted_pct: z.number().catch(0),
+  cum_pct: z.number().catch(0),
+});
+
 export const fundPortfolioSchema = z.object({
   funds: z.array(fundSchema).min(1),
   totals: totalsSchema.optional(),
@@ -123,6 +149,8 @@ export const fundPortfolioSchema = z.object({
   rules: z.record(z.string(), z.string()).catch({}),
   daily_pnl: z.array(dailyPnlSchema).catch([]),
   fund_details: z.record(z.string(), fundDetailSchema).catch({}),
+  watchlist: watchlistSchema,
+  watchlist_pnl: z.array(watchlistPnlSchema).catch([]),
   note: z.string().optional(),
   data_source: z.string().optional(),
   updated_at: z.string().optional(),
@@ -132,6 +160,8 @@ export type FundPosition = z.infer<typeof fundSchema>;
 export type FundPlan = z.infer<typeof planSchema>;
 export type FundDailyPnl = z.infer<typeof dailyPnlSchema>;
 export type FundDetail = z.infer<typeof fundDetailSchema>;
+export type WatchlistFund = z.infer<typeof watchlistFundSchema>;
+export type WatchlistPnl = z.infer<typeof watchlistPnlSchema>;
 export type FundPortfolio = z.infer<typeof fundPortfolioSchema>;
 
 export function parseFundPortfolio(data: unknown): FundPortfolio | null {

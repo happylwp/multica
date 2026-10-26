@@ -90,3 +90,33 @@ describe("portfolioTotals", () => {
     expect(totals.pnl_pct).toBeCloseTo((1604.3 / 39571) * 100, 5);
   });
 });
+
+describe("watchlist", () => {
+  it("parses the virtual portfolio and its weighted return series", () => {
+    const p = parseFundPortfolio({
+      funds: [{ code: "1", name: "n" }],
+      watchlist: {
+        name: "test",
+        funds: [{ code: "510300", name: "沪深300ETF", weight: 40, added_at: "2026-10-26" }],
+        baseline: "2026-10-26",
+      },
+      watchlist_pnl: [
+        { date: "2026-10-27", per_fund_pct: { "510300": 0.5 }, weighted_pct: 0.5, cum_pct: 0.5 },
+      ],
+    })!;
+
+    expect(p.watchlist?.funds[0]).toMatchObject({ code: "510300", weight: 40 });
+    expect(p.watchlist_pnl[0]).toMatchObject({ weighted_pct: 0.5, cum_pct: 0.5 });
+  });
+
+  it("degrades a malformed watchlist to null with empty returns", () => {
+    const p = parseFundPortfolio({
+      funds: [{ code: "1", name: "n" }],
+      watchlist: "oops",
+      watchlist_pnl: [{ date: "d", per_fund_pct: { x: 1 }, weighted_pct: "x" }],
+    })!;
+
+    expect(p.watchlist).toBeNull();
+    expect(p.watchlist_pnl[0]).toMatchObject({ weighted_pct: 0, cum_pct: 0 });
+  });
+});

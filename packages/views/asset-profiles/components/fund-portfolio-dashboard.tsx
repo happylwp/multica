@@ -2,6 +2,8 @@
 
 import { motion, MotionConfig } from "motion/react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -14,6 +16,7 @@ import {
 } from "recharts";
 import {
   CalendarDays,
+  LineChart as LineChartIcon,
   PieChart as PieChartIcon,
   ScrollText,
   TrendingUp,
@@ -37,6 +40,7 @@ import {
   portfolioTotals,
   type FundDailyPnl,
   type FundPortfolio,
+  type WatchlistPnl,
 } from "../fund-portfolio";
 import { AnimatedNumber } from "./animated-number";
 import { FundDetailDialog } from "./fund-detail-dialog";
@@ -124,6 +128,22 @@ export function FundPortfolioDashboard({
   const nameByCode = new Map(portfolio.funds.map((f) => [f.code, f.name]));
   const dailyPnlWindow = portfolio.daily_pnl.slice(-30);
   const dailyPnlSum = dailyPnlWindow.reduce((acc, d) => acc + d.total, 0);
+  const watchlist = portfolio.watchlist;
+  const watchlistPnl = portfolio.watchlist_pnl;
+  const watchlistLast = watchlistPnl.length > 0 ? watchlistPnl[watchlistPnl.length - 1] : null;
+  const watchlistCum = watchlistLast?.cum_pct ?? 0;
+  // Per-fund cumulative return since baseline (compounded from daily pcts).
+  const watchlistCumByCode = new Map<string, number>();
+  if (watchlist) {
+    for (const wf of watchlist.funds) {
+      let cum = 1;
+      for (const d of watchlistPnl) {
+        const pct = d.per_fund_pct[wf.code];
+        if (pct != null) cum *= 1 + pct / 100;
+      }
+      watchlistCumByCode.set(wf.code, Math.round((cum - 1) * 10000) / 100);
+    }
+  }
 
   return (
     <MotionConfig reducedMotion="user">
@@ -446,6 +466,128 @@ export function FundPortfolioDashboard({
                     </Bar>
                   </BarChart>
                 </ChartContainer>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : null}
+
+        {watchlist && watchlist.funds.length > 0 && watchlistPnl.length > 0 ? (
+          <motion.div {...rise(0.15)}>
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-1.5">
+                  <LineChartIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+                  {t(($) => $.dashboard.watchlist)}
+                  <span className="font-normal text-muted-foreground">
+                    {watchlist.name || t(($) => $.dashboard.watchlist_unnamed)}
+                  </span>
+                </CardTitle>
+                <CardDescription
+                  className={
+                    watchlistCum >= 0
+                      ? "text-red-500 dark:text-red-400"
+                      : "text-emerald-600 dark:text-emerald-400"
+                  }
+                >
+                  {t(($) => $.dashboard.watchlist_window, {
+                    days: watchlistPnl.length,
+                    since: watchlist.baseline,
+                    cum: `${watchlistCum >= 0 ? "+" : ""}${watchlistCum}%`,
+                  })}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={emptyChartConfig} className="aspect-[16/7] w-full">
+                  <AreaChart
+                    data={watchlistPnl}
+                    margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="watchlistCum" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.35} />
+                        <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tickLine={false}
+                      axisLine={false}
+                      minTickGap={16}
+                      tickFormatter={(v: string) => v.slice(5)}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      width={44}
+                      tickFormatter={(v: number) => `${v}%`}
+                    />
+                    <ChartTooltip
+                      cursor={{ stroke: "var(--muted-foreground)" }}
+                      content={
+                        <ChartTooltipContent
+                          hideLabel
+                          hideIndicator
+                          formatter={(_value, _name, item) => {
+                            const row = item?.payload as WatchlistPnl | undefined;
+                            if (!row) return null;
+                            const detail = watchlist.funds
+                              .map((wf) => {
+                                const pct = row.per_fund_pct[wf.code];
+                                return pct == null ? null : { wf, pct };
+                              })
+                              .filter((x): x is { wf: (typeof watchlist.funds)[number]; pct: number } => x != null)
+                              .sort((a, b) => b.pct - a.pct);
+                            return (
+                              <div className="flex min-w-44 flex-col gap-0.5">
+                                <span className="font-mono text-caption font-medium tabular-nums">
+                                  {`${row.date} · ${row.weighted_pct >= 0 ? "+" : ""}${row.weighted_pct}% · ${t(($) => $.dashboard.watchlist_cum, {
+                                    cum: `${row.cum_pct >= 0 ? "+" : ""}${row.cum_pct}%`,
+                                  })}`}
+                                </span>
+                                {detail.map(({ wf, pct }) => (
+                                  <span
+                                    key={wf.code}
+                                    className="flex items-baseline justify-between gap-3 font-mono text-caption tabular-nums"
+                                  >
+                                    <span className="min-w-0 truncate">{wf.name || wf.code}</span>
+                                    <span className={pct >= 0 ? "text-red-500 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}>
+                                      {pct >= 0 ? "+" : ""}{pct}%
+                                    </span>
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          }}
+                        />
+                      }
+                    />
+                    <ReferenceLine y={0} />
+                    <Area
+                      type="monotone"
+                      dataKey="cum_pct"
+                      stroke="var(--chart-2)"
+                      strokeWidth={1.5}
+                      fill="url(#watchlistCum)"
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ChartContainer>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                  {watchlist.funds.map((wf) => (
+                    <span
+                      key={wf.code}
+                      className="flex items-baseline gap-1.5 font-mono text-caption tabular-nums"
+                    >
+                      <span className="font-mono text-muted-foreground">{wf.weight}%</span>
+                      <span className="max-w-40 truncate">{wf.name || wf.code}</span>
+                      <span className={(watchlistCumByCode.get(wf.code) ?? 0) >= 0 ? "text-red-500 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}>
+                        {(watchlistCumByCode.get(wf.code) ?? 0) >= 0 ? "+" : ""}
+                        {watchlistCumByCode.get(wf.code) ?? 0}%
+                      </span>
+                    </span>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           </motion.div>

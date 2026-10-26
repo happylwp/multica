@@ -46,7 +46,11 @@
     "structure_fixed_income": "固收",
     "structure_equity_dividend": "红利权益",
     "daily_pnl": "每日盈亏",
-    "daily_pnl_window": "近 {{days}} 个交易日 {{sum}}"
+    "daily_pnl_window": "近 {{days}} 个交易日 {{sum}}",
+    "watchlist": "观察组合",
+    "watchlist_unnamed": "未命名",
+    "watchlist_window": "自 {{since}} 起 · {{days}} 个交易日 · 累计 {{cum}}",
+    "watchlist_cum": "累计 {{cum}}"
   },
   "dialog": {
     "create_title": "新建资产档案",
@@ -117,5 +121,14 @@
     "missing_identity": "每只基金需要代码与名称",
     "invalid_number": "数值字段无效",
     "empty_funds": "至少保留一只基金"
+  },
+  "watchlist_editor": {
+    "open": "编辑观察组合",
+    "title": "观察组合",
+    "description": "由不一定实际持有的基金构成的虚拟组合，每日同步自动计算加权收益。",
+    "name": "组合名称",
+    "weight": "权重 %",
+    "add_hint": "输入任意 6 位基金代码即可跟踪，无需实际持有",
+    "bad_weight": "权重需为正数"
   }
 }
