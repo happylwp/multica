@@ -85,4 +85,23 @@ describe("FundPortfolioDashboard", () => {
     expect(screen.getByText("Gold")).toBeTruthy();
     expect(screen.getByText("crypto")).toBeTruthy();
   });
+
+  it("renders the daily P&L chart with the window summary", () => {
+    renderDashboard({
+      ...PORTFOLIO_DOC,
+      daily_pnl: [
+        { date: "2026-10-22", per_fund: { "161716": 67.32 }, total: 67.32 },
+        { date: "2026-10-23", per_fund: { "161716": -100 }, total: -100 },
+      ],
+    });
+
+    expect(screen.getByText("Daily P&L")).toBeTruthy();
+    expect(screen.getByText("Last 2 trading days · ¥-32.68")).toBeTruthy();
+  });
+
+  it("omits the daily P&L chart when the document has no history", () => {
+    renderDashboard(PORTFOLIO_DOC);
+
+    expect(screen.queryByText("Daily P&L")).toBeNull();
+  });
 });

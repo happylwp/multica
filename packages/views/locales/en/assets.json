@@ -44,7 +44,9 @@
     "weight": "Weight",
     "structure_gold": "Gold",
     "structure_fixed_income": "Fixed income",
-    "structure_equity_dividend": "Dividend equity"
+    "structure_equity_dividend": "Dividend equity",
+    "daily_pnl": "Daily P&L",
+    "daily_pnl_window": "Last {{days}} trading days · {{sum}}"
   },
   "dialog": {
     "create_title": "New asset profile",

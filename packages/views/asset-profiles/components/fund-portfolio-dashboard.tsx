@@ -12,7 +12,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { CalendarDays, PieChart as PieChartIcon, ScrollText } from "lucide-react";
+import {
+  CalendarDays,
+  PieChart as PieChartIcon,
+  ScrollText,
+  TrendingUp,
+} from "lucide-react";
 import { Badge } from "@multica/ui/components/ui/badge";
 import {
   Card,
@@ -28,7 +33,11 @@ import {
   type ChartConfig,
 } from "@multica/ui/components/ui/chart";
 import { useT } from "../../i18n";
-import { portfolioTotals, type FundPortfolio } from "../fund-portfolio";
+import {
+  portfolioTotals,
+  type FundDailyPnl,
+  type FundPortfolio,
+} from "../fund-portfolio";
 import { AnimatedNumber } from "./animated-number";
 
 // CN market convention: red = gain, green = loss. Both stops stay readable
@@ -108,6 +117,12 @@ export function FundPortfolioDashboard({
   const structureEntries = Object.entries(portfolio.structure_pct);
   const plans = portfolio.plans;
   const rules = Object.entries(portfolio.rules);
+
+  // Daily P&L arrives oldest-first from the nav-sync job; cap the chart at
+  // the most recent 30 trading days.
+  const nameByCode = new Map(portfolio.funds.map((f) => [f.code, f.name]));
+  const dailyPnlWindow = portfolio.daily_pnl.slice(-30);
+  const dailyPnlSum = dailyPnlWindow.reduce((acc, d) => acc + d.total, 0);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -326,6 +341,106 @@ export function FundPortfolioDashboard({
                   </div>
                   );
                 })}
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : null}
+
+        {dailyPnlWindow.length > 0 ? (
+          <motion.div {...rise(0.46)}>
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-1.5">
+                  <TrendingUp aria-hidden="true" className="size-4 text-muted-foreground" />
+                  {t(($) => $.dashboard.daily_pnl)}
+                </CardTitle>
+                <CardDescription
+                  className={
+                    dailyPnlSum >= 0
+                      ? "text-red-500 dark:text-red-400"
+                      : "text-emerald-600 dark:text-emerald-400"
+                  }
+                >
+                  {t(($) => $.dashboard.daily_pnl_window, {
+                    days: dailyPnlWindow.length,
+                    sum: formatPnL(dailyPnlSum),
+                  })}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={emptyChartConfig} className="aspect-[16/7] w-full">
+                  <BarChart
+                    data={dailyPnlWindow}
+                    margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tickLine={false}
+                      axisLine={false}
+                      minTickGap={16}
+                      tickFormatter={(v: string) => v.slice(5)}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      width={56}
+                      tickFormatter={(v: number) => formatPnL(v)}
+                    />
+                    <ChartTooltip
+                      cursor={{ fill: "var(--muted)" }}
+                      content={
+                        <ChartTooltipContent
+                          hideLabel
+                          hideIndicator
+                          formatter={(_value, _name, item) => {
+                            const row = item?.payload as FundDailyPnl | undefined;
+                            if (!row) return null;
+                            const details = Object.entries(row.per_fund)
+                              .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+                              .slice(0, 5);
+                            return (
+                              <div className="flex min-w-44 flex-col gap-0.5">
+                                <span className="font-mono text-caption font-medium tabular-nums">
+                                  {row.date} · {formatPnL(row.total)}
+                                </span>
+                                {details.map(([code, v]) => (
+                                  <span
+                                    key={code}
+                                    className="flex items-baseline justify-between gap-3 font-mono text-caption tabular-nums"
+                                  >
+                                    <span className="min-w-0 truncate">
+                                      {nameByCode.get(code) ?? code}
+                                    </span>
+                                    <span
+                                      className={
+                                        v >= 0
+                                          ? "text-red-500 dark:text-red-400"
+                                          : "text-emerald-600 dark:text-emerald-400"
+                                      }
+                                    >
+                                      {formatPnL(v)}
+                                    </span>
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          }}
+                        />
+                      }
+                    />
+                    <ReferenceLine y={0} />
+                    <Bar
+                      dataKey="total"
+                      barSize={Math.min(20, Math.max(4, Math.floor(560 / dailyPnlWindow.length)))}
+                      radius={[2, 2, 0, 0]}
+                    >
+                      {dailyPnlWindow.map((d) => (
+                        <Cell key={d.date} fill={d.total >= 0 ? PNL_POSITIVE : PNL_NEGATIVE} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ChartContainer>
               </CardContent>
             </Card>
           </motion.div>
