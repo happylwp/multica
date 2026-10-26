@@ -12,6 +12,7 @@ import {
 } from "@multica/core/workspace/queries";
 import { Button } from "@multica/ui/components/ui/button";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@multica/ui/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,11 +28,14 @@ import { PageHeader } from "../../layout/page-header";
 import { CollectionPageState } from "../../layout/collection-page";
 import { useT } from "../../i18n";
 import { AssetProfileDialog } from "./asset-profile-dialog";
+import { parseFundPortfolio } from "../fund-portfolio";
+import { FundPortfolioDashboard } from "./fund-portfolio-dashboard";
 
 /**
  * Asset profile detail: metadata plus the raw JSON document. The document is
- * opaque by contract, so it renders pretty-printed rather than through a
- * schema-specific viewer — any profile is displayable without code changes.
+ * opaque by contract; fund-portfolio-shaped documents additionally get a
+ * visual dashboard tab, and anything else renders pretty-printed — any
+ * profile stays displayable without code changes.
  */
 export function AssetProfileDetailPage({ profileId }: { profileId: string }) {
   const { t } = useT("assets");
@@ -82,6 +86,8 @@ export function AssetProfileDetailPage({ profileId }: { profileId: string }) {
     );
   }
 
+  const portfolio = parseFundPortfolio(profile.data);
+
   const copyDocument = async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(profile.data, null, 2));
@@ -128,24 +134,38 @@ export function AssetProfileDetailPage({ profileId }: { profileId: string }) {
         </div>
       </PageHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-4xl px-6 py-4">
+        <div className="mx-auto max-w-5xl px-6 py-4">
           {profile.description ? (
             <p className="text-caption text-muted-foreground">
               {profile.description}
             </p>
           ) : null}
-          <div className="mt-4 flex items-center justify-between gap-2">
-            <h2 className="text-title-sm font-medium">
-              {t(($) => $.detail.document)}
-            </h2>
-            <Button size="sm" variant="ghost" onClick={copyDocument}>
-              {copied ? <Check /> : <Copy />}
-              {copied ? t(($) => $.detail.copied) : t(($) => $.detail.copy)}
-            </Button>
-          </div>
-          <pre className="mt-2 overflow-x-auto rounded-md border bg-muted/40 p-4 font-mono text-caption leading-relaxed">
-            {JSON.stringify(profile.data, null, 2)}
-          </pre>
+          <Tabs defaultValue={portfolio ? "dashboard" : "raw"} className="mt-4">
+            <div className="flex items-center justify-between gap-2">
+              <TabsList>
+                {portfolio ? (
+                  <TabsTrigger value="dashboard">
+                    {t(($) => $.detail.tab_dashboard)}
+                  </TabsTrigger>
+                ) : null}
+                <TabsTrigger value="raw">{t(($) => $.detail.tab_raw)}</TabsTrigger>
+              </TabsList>
+              <Button size="sm" variant="ghost" onClick={copyDocument}>
+                {copied ? <Check /> : <Copy />}
+                {copied ? t(($) => $.detail.copied) : t(($) => $.detail.copy)}
+              </Button>
+            </div>
+            {portfolio ? (
+              <TabsContent value="dashboard" className="mt-4">
+                <FundPortfolioDashboard portfolio={portfolio} />
+              </TabsContent>
+            ) : null}
+            <TabsContent value="raw" className="mt-4">
+              <pre className="overflow-x-auto rounded-md border bg-muted/40 p-4 font-mono text-caption leading-relaxed">
+                {JSON.stringify(profile.data, null, 2)}
+              </pre>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
       {editing ? (

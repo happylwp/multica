@@ -22,7 +22,29 @@
     "delete_confirm_title": "Delete asset profile?",
     "delete_confirm_description": "This cannot be undone.",
     "updated": "Updated",
-    "not_found": "Asset profile not found."
+    "not_found": "Asset profile not found.",
+    "tab_dashboard": "Dashboard",
+    "tab_raw": "Raw document"
+  },
+  "dashboard": {
+    "market_value": "Market value",
+    "cost_amount": "Cost basis",
+    "cum_pnl": "Cumulative P&L",
+    "pnl_pct": "Return",
+    "allocation": "Allocation",
+    "pnl_chart": "Cumulative P&L by fund",
+    "structure": "Asset mix",
+    "funds": "Holdings",
+    "fund_count": "{{n}} funds",
+    "in_flight": "In flight",
+    "plans": "Recurring plans",
+    "plan_monthly": "Monthly, day {{day}}",
+    "rules": "Policy rules",
+    "cost_price": "cost",
+    "weight": "Weight",
+    "structure_gold": "Gold",
+    "structure_fixed_income": "Fixed income",
+    "structure_equity_dividend": "Dividend equity"
   },
   "dialog": {
     "create_title": "New asset profile",
