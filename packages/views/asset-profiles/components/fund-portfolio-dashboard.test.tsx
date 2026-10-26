@@ -126,3 +126,36 @@ describe("FundPortfolioDashboard", () => {
     expect(screen.getAllByText("Dual bond").length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("FundPortfolioDashboard watchlist", () => {
+  it("renders the watchlist card with cumulative returns per fund", () => {
+    renderDashboard({
+      ...PORTFOLIO_DOC,
+      watchlist: {
+        name: "trial",
+        funds: [
+          { code: "510300", name: "沪深300ETF", weight: 60, added_at: "2026-10-20" },
+          { code: "512890", name: "红利低波ETF", weight: 40, added_at: "2026-10-20" },
+        ],
+        baseline: "2026-10-20",
+      },
+      watchlist_pnl: [
+        { date: "2026-10-23", per_fund_pct: { "510300": 1.44, "512890": 0.3 }, weighted_pct: 0.98, cum_pct: 0.98 },
+        { date: "2026-10-26", per_fund_pct: { "510300": -0.03 }, weighted_pct: -0.03, cum_pct: 0.95 },
+      ],
+    });
+
+    expect(screen.getByText("Watchlist")).toBeTruthy();
+    expect(screen.getByText("trial")).toBeTruthy();
+    expect(screen.getByText("Since 2026-10-20 · 2 days · cum +0.95%")).toBeTruthy();
+    // per-fund compounded return since baseline (510300: 1.0144×0.9997−1 ≈ 1.41%)
+    expect(screen.getByText("60%")).toBeTruthy();
+    expect(screen.getByText("+1.41%")).toBeTruthy();
+  });
+
+  it("omits the watchlist card when there is no watchlist data", () => {
+    renderDashboard(PORTFOLIO_DOC);
+
+    expect(screen.queryByText("Watchlist")).toBeNull();
+  });
+});

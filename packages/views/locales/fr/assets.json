@@ -46,7 +46,11 @@
     "structure_fixed_income": "Fixed income",
     "structure_equity_dividend": "Dividend equity",
     "daily_pnl": "Daily P&L",
-    "daily_pnl_window": "Last {{days}} trading days · {{sum}}"
+    "daily_pnl_window": "Last {{days}} trading days · {{sum}}",
+    "watchlist": "Watchlist",
+    "watchlist_unnamed": "unnamed",
+    "watchlist_window": "Since {{since}} · {{days}} days · cum {{cum}}",
+    "watchlist_cum": "cum {{cum}}"
   },
   "dialog": {
     "create_title": "New asset profile",
@@ -117,5 +121,14 @@
     "missing_identity": "Each fund needs a code and a name",
     "invalid_number": "Invalid number field",
     "empty_funds": "Keep at least one fund"
+  },
+  "watchlist_editor": {
+    "open": "Edit watchlist",
+    "title": "Watchlist",
+    "description": "Virtual portfolio of funds you do not necessarily hold; the daily sync computes its weighted returns.",
+    "name": "Watchlist name",
+    "weight": "Weight %",
+    "add_hint": "Add any 6-digit fund code to track it without holding it",
+    "bad_weight": "weight must be a positive number"
   }
 }
