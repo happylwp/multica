@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowLeft, Check, Copy, Pencil, Trash2 } from "lucide-react";
+import { Archive, ArrowLeft, Check, Copy, ListPlus, Pencil, Trash2 } from "lucide-react";
 import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -28,6 +28,7 @@ import { PageHeader } from "../../layout/page-header";
 import { CollectionPageState } from "../../layout/collection-page";
 import { useT } from "../../i18n";
 import { AssetProfileDialog } from "./asset-profile-dialog";
+import { FundPositionsEditorDialog } from "./fund-positions-editor";
 import { parseFundPortfolio } from "../fund-portfolio";
 import { FundPortfolioDashboard } from "./fund-portfolio-dashboard";
 
@@ -45,6 +46,7 @@ export function AssetProfileDetailPage({ profileId }: { profileId: string }) {
   const qc = useQueryClient();
   const { push } = useNavigation();
   const [editing, setEditing] = useState(false);
+  const [editingPositions, setEditingPositions] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -118,6 +120,12 @@ export function AssetProfileDetailPage({ profileId }: { profileId: string }) {
           <h1 className="truncate text-body font-medium">{profile.name}</h1>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {portfolio ? (
+            <Button size="sm" variant="outline" onClick={() => setEditingPositions(true)}>
+              <ListPlus />
+              {t(($) => $.fund_editor.open)}
+            </Button>
+          ) : null}
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
             <Pencil />
             {t(($) => $.detail.edit)}
@@ -173,6 +181,13 @@ export function AssetProfileDetailPage({ profileId }: { profileId: string }) {
           wsId={wsId}
           profile={profile}
           onClose={() => setEditing(false)}
+        />
+      ) : null}
+      {editingPositions && portfolio ? (
+        <FundPositionsEditorDialog
+          wsId={wsId}
+          profile={profile}
+          onClose={() => setEditingPositions(false)}
         />
       ) : null}
       <AlertDialog
