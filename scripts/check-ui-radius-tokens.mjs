@@ -27,6 +27,7 @@ const fixedCssLength = /^(?:\d+(?:\.\d+)?|\.\d+)(?:px|rem|em|%|cm|mm|in|pt|pc|q|
 const microGeometryAllowlist = new Set([
   "apps/web/features/landing/components/features-section.tsx:rounded-[2px]",
   "packages/ui/components/ui/chart.tsx:rounded-[2px]",
+  "packages/views/asset-profiles/components/fund-portfolio-dashboard.tsx:rounded-[2px]",
   "packages/views/common/task-transcript/run-timeline.tsx:rounded-[3px]",
   "packages/views/dashboard/components/errors-tab.tsx:rounded-[2px]",
   "packages/views/issues/components/gantt-view.tsx:rounded-[2px]",
