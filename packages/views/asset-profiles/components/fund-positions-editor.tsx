@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, Trash2 } from "lucide-react";
 import { api } from "@multica/core/api";
-import { workspaceKeys } from "@multica/core/workspace/queries";
+import { assetProfileDetailOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import type { AssetProfile } from "@multica/core/types";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { Button } from "@multica/ui/components/ui/button";
@@ -185,8 +185,15 @@ export function FundPositionsEditorDialog({
       const market_value = round2(funds.reduce((a, f) => a + f.market_value, 0));
       const cost_amount = round2(funds.reduce((a, f) => a + f.cost_amount, 0));
       const cum_pnl = round2(funds.reduce((a, f) => a + f.cum_pnl, 0));
+      // Merge onto the freshest server document: cached page data can lag
+      // server-generated sections (daily_pnl, watchlist_pnl, nav_snapshot)
+      // that a blind spread of the stale document would clobber.
+      const latest = await qc.fetchQuery({
+        ...assetProfileDetailOptions(wsId, profile.id),
+        staleTime: 0,
+      });
       const doc = {
-        ...(typeof profile.data === "object" && profile.data !== null ? profile.data : {}),
+        ...(typeof latest.data === "object" && latest.data !== null ? latest.data : {}),
         funds,
         totals: {
           market_value,

@@ -9,6 +9,7 @@ import enAssets from "../../locales/en/assets.json";
 
 const mockUpdate = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
+const mockFetchQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-query", () => ({
   useMutation: ({ mutationFn, onSuccess, onError }: {
@@ -25,7 +26,8 @@ vi.mock("@tanstack/react-query", () => ({
       }
     },
   }),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  queryOptions: (o: unknown) => o,
+  useQueryClient: () => ({ invalidateQueries: vi.fn(), fetchQuery: mockFetchQuery }),
 }));
 vi.mock("@multica/core/api", () => ({ api: { updateAssetProfile: mockUpdate } }));
 vi.mock("../eastmoney", () => ({ fetchEastMoneyFund: mockFetch }));
@@ -84,6 +86,10 @@ describe("FundWatchlistEditorDialog", () => {
   it("saves weights and keeps the existing baseline", async () => {
     const user = userEvent.setup();
     mockUpdate.mockResolvedValue({});
+    // the server document carries server-generated returns newer than the
+    // cached page data; the save must merge onto them, not clobber them
+    const serverPnl = [{ date: "2026-09-28", per_fund_pct: {}, weighted_pct: -1.13, cum_pct: -1.13 }];
+    mockFetchQuery.mockResolvedValue({ ...PROFILE, data: { ...PROFILE.data, watchlist_pnl: serverPnl } });
     renderEditor();
 
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -95,8 +101,10 @@ describe("FundWatchlistEditorDialog", () => {
       funds: [{ code: "510300", name: "沪深300ETF", weight: 40, added_at: "2026-10-26" }],
       baseline: "2026-10-26",
     });
-    // the rest of the document is preserved
+    // the rest of the document is preserved, including server-generated
+    // returns fetched fresh at save time
     expect(payload.data.funds).toHaveLength(1);
+    expect(payload.data.watchlist_pnl).toBe(serverPnl);
   });
 
   it("backfills a new watchlist to 30 days ago", async () => {
@@ -104,6 +112,7 @@ describe("FundWatchlistEditorDialog", () => {
     mockUpdate.mockResolvedValue({});
     mockFetch.mockResolvedValue({ code: "512890", name: "红利低波ETF", nav: 1.05, navDate: "2026-10-26" });
     const fresh = { ...PROFILE, data: { funds: PROFILE.data.funds } } as unknown as AssetProfile;
+    mockFetchQuery.mockResolvedValue(fresh);
     renderEditor(fresh);
 
     expect(

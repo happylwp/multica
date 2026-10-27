@@ -9,6 +9,7 @@ import enAssets from "../../locales/en/assets.json";
 
 const mockUpdate = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
+const mockFetchQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-query", () => ({
   useMutation: ({ mutationFn, onSuccess, onError }: {
@@ -25,8 +26,8 @@ vi.mock("@tanstack/react-query", () => ({
       }
     },
   }),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-  queryOptions: <T,>(opts: T) => opts,
+  queryOptions: (o: unknown) => o,
+  useQueryClient: () => ({ invalidateQueries: vi.fn(), fetchQuery: mockFetchQuery }),
 }));
 vi.mock("@multica/core/api", () => ({ api: { updateAssetProfile: mockUpdate } }));
 vi.mock("../eastmoney", () => ({ fetchEastMoneyFund: mockFetch }));
@@ -120,6 +121,10 @@ describe("FundPositionsEditorDialog", () => {
   it("saves with recomputed totals and preserves the rest of the document", async () => {
     const user = userEvent.setup();
     mockUpdate.mockResolvedValue({});
+    // the server document carries server-generated sections newer than the
+    // cached page data; the save must merge onto them, not clobber them
+    const serverPnl = [{ date: "2026-10-26", per_fund: { "161716": 1.2 }, total: 1.2 }];
+    mockFetchQuery.mockResolvedValue({ ...PROFILE, data: { ...PROFILE.data, daily_pnl: serverPnl } });
     renderEditor();
 
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -136,5 +141,7 @@ describe("FundPositionsEditorDialog", () => {
       cum_pnl: 154,
       pnl_pct: 10.27,
     });
+    // server-generated section from the fresh document survives the save
+    expect(payload.data.daily_pnl).toBe(serverPnl);
   });
 });
