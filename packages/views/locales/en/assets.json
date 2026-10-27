@@ -129,6 +129,7 @@
     "name": "Watchlist name",
     "weight": "Weight %",
     "add_hint": "Add any 6-digit fund code to track it without holding it",
-    "bad_weight": "weight must be a positive number"
+    "bad_weight": "weight must be a positive number",
+    "backfill_hint": "A new watchlist backfills the last 30 days of NAVs at these weights, so the chart starts with a month of history"
   }
 }

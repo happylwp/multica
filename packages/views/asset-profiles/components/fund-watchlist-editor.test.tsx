@@ -99,6 +99,33 @@ describe("FundWatchlistEditorDialog", () => {
     expect(payload.data.funds).toHaveLength(1);
   });
 
+  it("backfills a new watchlist to 30 days ago", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockResolvedValue({});
+    mockFetch.mockResolvedValue({ code: "512890", name: "红利低波ETF", nav: 1.05, navDate: "2026-10-26" });
+    const fresh = { ...PROFILE, data: { funds: PROFILE.data.funds } } as unknown as AssetProfile;
+    renderEditor(fresh);
+
+    expect(
+      screen.getByText(/backfills the last 30 days/),
+    ).toBeTruthy();
+
+    await user.type(screen.getByLabelText("Fund code"), "512890");
+    await user.click(screen.getByRole("button", { name: "Fetch" }));
+    await user.type(screen.getByLabelText("Weight %"), "40");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await vi.waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(1));
+    const payload = mockUpdate.mock.calls[0]![1];
+    const expected = new Date(Date.now() - 30 * 86400000);
+    const monthAgo =
+      `${expected.getFullYear()}-${String(expected.getMonth() + 1).padStart(2, "0")}-${String(expected.getDate()).padStart(2, "0")}`;
+    expect(payload.data.watchlist.baseline).toBe(monthAgo);
+    expect(payload.data.watchlist.funds).toEqual([
+      { code: "512890", name: "红利低波ETF", weight: 40, added_at: expect.any(String) },
+    ]);
+  });
+
   it("rejects a non-positive weight", async () => {
     const user = userEvent.setup();
     renderEditor();
