@@ -27,10 +27,12 @@ function toDraft(f: WatchlistFund): DraftWatchFund {
   return { code: f.code, name: f.name, weight: String(f.weight ?? ""), added_at: f.added_at };
 }
 
-const today = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const today = () => iso(new Date());
+// New watchlists start ~30 days back so the first sync seeds a month of
+// return history; the baseline contract itself stays immutable.
+const monthAgo = () => iso(new Date(Date.now() - 30 * 86400000));
 
 /**
  * Form-based maintenance for the watchlist — a virtual portfolio of funds
@@ -108,7 +110,7 @@ export function FundWatchlistEditorDialog({
         watchlist: {
           name: name.trim(),
           funds,
-          baseline: existing?.watchlist?.baseline ?? today(),
+          baseline: existing?.watchlist?.baseline ?? monthAgo(),
         },
       };
       return api.updateAssetProfile(profile.id, { data: doc });
@@ -136,8 +138,12 @@ export function FundWatchlistEditorDialog({
             mutation.mutate();
           }}
         >
-          <DialogDescription className="sr-only">
-            {t(($) => $.watchlist_editor.description)}
+          {/* New watchlists backfill ~30 days of NAVs; existing ones keep the
+              immutable-baseline contract, so the hint only shows on create. */}
+          <DialogDescription className={existing?.watchlist ? "sr-only" : undefined}>
+            {existing?.watchlist
+              ? t(($) => $.watchlist_editor.description)
+              : t(($) => $.watchlist_editor.backfill_hint)}
           </DialogDescription>
 
           <div className="grid gap-1.5">
