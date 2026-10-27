@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, Trash2 } from "lucide-react";
 import { api } from "@multica/core/api";
-import { workspaceKeys } from "@multica/core/workspace/queries";
+import { assetProfileDetailOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import type { AssetProfile } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
 import {
@@ -105,8 +105,15 @@ export function FundWatchlistEditorDialog({
       }
       if (funds.length === 0) throw new Error(t(($) => $.fund_editor.empty_funds));
 
+      // Merge onto the freshest server document: cached page data can lag
+      // server-generated sections (watchlist_pnl, daily_pnl, nav_snapshot)
+      // that a blind spread of the stale document would clobber.
+      const latest = await qc.fetchQuery({
+        ...assetProfileDetailOptions(wsId, profile.id),
+        staleTime: 0,
+      });
       const doc = {
-        ...(typeof profile.data === "object" && profile.data !== null ? profile.data : {}),
+        ...(typeof latest.data === "object" && latest.data !== null ? latest.data : {}),
         watchlist: {
           name: name.trim(),
           funds,
