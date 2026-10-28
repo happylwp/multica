@@ -58,7 +58,14 @@
     "gold_unit_usd": "USD/oz",
     "gold_unit_cny": "CNY/g",
     "gold_etf": "Gold ETF feeder (000307)",
-    "gold_etf_nav": "Latest NAV {{nav}} ({{date}})"
+    "gold_etf_nav": "Latest NAV {{nav}} ({{date}})",
+    "watchlist_pending_sync": "Configuration mise à jour — actualisée à la prochaine synchronisation des VL",
+    "watchlist_fund_cum": "Rendement total",
+    "watchlist_fund_best": "Meilleur jour",
+    "watchlist_fund_worst": "Pire jour",
+    "watchlist_fund_avg": "Moy. quotidienne",
+    "watchlist_fund_trend": "Évolution du rendement cumulé",
+    "watchlist_fund_daily": "Variation quotidienne"
   },
   "dialog": {
     "create_title": "New asset profile",

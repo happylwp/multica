@@ -40,6 +40,7 @@ import {
 import { useT } from "../../i18n";
 import {
   portfolioTotals,
+  watchlistFundSeries,
   type FundDailyPnl,
   type FundPortfolio,
   type WatchlistPnl,
@@ -47,6 +48,7 @@ import {
 import { fetchGoldQuotes, type GoldQuote } from "../eastmoney";
 import { AnimatedNumber } from "./animated-number";
 import { FundDetailDialog } from "./fund-detail-dialog";
+import { FundWatchlistFundDialog } from "./fund-watchlist-fund-dialog";
 
 // CN market convention: red = gain, green = loss. Both stops stay readable
 // in light and dark themes.
@@ -168,18 +170,33 @@ export function FundPortfolioDashboard({
   const watchlistPnl = portfolio.watchlist_pnl;
   const watchlistLast = watchlistPnl.length > 0 ? watchlistPnl[watchlistPnl.length - 1] : null;
   const watchlistCum = watchlistLast?.cum_pct ?? 0;
-  // Per-fund cumulative return since baseline (compounded from daily pcts).
+  // Per-fund cumulative return and full daily series since baseline
+  // (compounded from daily pcts); the series feeds the per-fund dialogs.
+  const watchlistSeriesByCode = new Map<string, { date: string; daily: number; cum: number }[]>();
   const watchlistCumByCode = new Map<string, number>();
   if (watchlist) {
     for (const wf of watchlist.funds) {
-      let cum = 1;
-      for (const d of watchlistPnl) {
-        const pct = d.per_fund_pct[wf.code];
-        if (pct != null) cum *= 1 + pct / 100;
-      }
-      watchlistCumByCode.set(wf.code, Math.round((cum - 1) * 10000) / 100);
+      const series = watchlistFundSeries(watchlistPnl, wf.code);
+      watchlistSeriesByCode.set(wf.code, series);
+      watchlistCumByCode.set(wf.code, series.at(-1)?.cum ?? 0);
     }
   }
+  // Config vs series drift: funds added/removed since the last NAV sync
+  // leave the curve on the old composition — flag it instead of showing
+  // stale data as if current.
+  const watchlistStale =
+    watchlist != null &&
+    (() => {
+      const pnlCodes = new Set<string>();
+      for (const d of watchlistPnl) {
+        for (const c of Object.keys(d.per_fund_pct)) pnlCodes.add(c);
+      }
+      const configCodes = new Set(watchlist.funds.map((wf) => wf.code));
+      return (
+        [...configCodes].some((c) => !pnlCodes.has(c)) ||
+        [...pnlCodes].some((c) => !configCodes.has(c))
+      );
+    })();
 
   // Live gold reference (COMEX futures + SGE AU9999) next to the gold
   // holding; refetches on window focus, 30s staleness keeps it near-live.
@@ -528,6 +545,14 @@ export function FundPortfolioDashboard({
                   <span className="font-normal text-muted-foreground">
                     {watchlist.name || t(($) => $.dashboard.watchlist_unnamed)}
                   </span>
+                  {watchlistStale ? (
+                    <Badge
+                      variant="outline"
+                      className="font-normal text-amber-600 dark:text-amber-400"
+                    >
+                      {t(($) => $.dashboard.watchlist_pending_sync)}
+                    </Badge>
+                  ) : null}
                 </CardTitle>
                 <CardDescription
                   className={
@@ -621,19 +646,33 @@ export function FundPortfolioDashboard({
                   </AreaChart>
                 </ChartContainer>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                  {watchlist.funds.map((wf) => (
-                    <span
-                      key={wf.code}
-                      className="flex items-baseline gap-1.5 font-mono text-caption tabular-nums"
-                    >
-                      <span className="font-mono text-muted-foreground">{wf.weight}%</span>
-                      <span className="max-w-40 truncate">{wf.name || wf.code}</span>
-                      <span className={(watchlistCumByCode.get(wf.code) ?? 0) >= 0 ? "text-red-500 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}>
-                        {(watchlistCumByCode.get(wf.code) ?? 0) >= 0 ? "+" : ""}
-                        {watchlistCumByCode.get(wf.code) ?? 0}%
+                  {watchlist.funds.map((wf) => {
+                    const series = watchlistSeriesByCode.get(wf.code) ?? [];
+                    const cum = watchlistCumByCode.get(wf.code) ?? 0;
+                    const chip = (
+                      <span className="flex items-baseline gap-1.5 font-mono text-caption tabular-nums">
+                        <span className="font-mono text-muted-foreground">{wf.weight}%</span>
+                        <span className="max-w-40 truncate">{wf.name || wf.code}</span>
+                        <span className={cum >= 0 ? "text-red-500 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}>
+                          {cum >= 0 ? "+" : ""}
+                          {cum}%
+                        </span>
                       </span>
-                    </span>
-                  ))}
+                    );
+                    // Funds without a synced series yet (added since the last
+                    // NAV sync) stay inert until the next rebuild.
+                    return series.length > 0 ? (
+                      <FundWatchlistFundDialog
+                        key={wf.code}
+                        wf={wf}
+                        series={series}
+                        baseline={watchlist.baseline}
+                        trigger={chip}
+                      />
+                    ) : (
+                      <span key={wf.code}>{chip}</span>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

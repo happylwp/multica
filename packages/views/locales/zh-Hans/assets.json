@@ -58,7 +58,14 @@
     "gold_unit_usd": "美元/盎司",
     "gold_unit_cny": "元/克",
     "gold_etf": "黄金 ETF 联接（000307）",
-    "gold_etf_nav": "最新净值 {{nav}}（{{date}}）"
+    "gold_etf_nav": "最新净值 {{nav}}（{{date}}）",
+    "watchlist_pending_sync": "配置已更新，待下次净值同步后刷新",
+    "watchlist_fund_cum": "区间累计",
+    "watchlist_fund_best": "最佳单日",
+    "watchlist_fund_worst": "最差单日",
+    "watchlist_fund_avg": "日均",
+    "watchlist_fund_trend": "累计收益走势",
+    "watchlist_fund_daily": "每日涨跌"
   },
   "dialog": {
     "create_title": "新建资产档案",

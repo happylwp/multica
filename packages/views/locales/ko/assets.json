@@ -58,7 +58,14 @@
     "gold_unit_usd": "USD/oz",
     "gold_unit_cny": "CNY/g",
     "gold_etf": "Gold ETF feeder (000307)",
-    "gold_etf_nav": "Latest NAV {{nav}} ({{date}})"
+    "gold_etf_nav": "Latest NAV {{nav}} ({{date}})",
+    "watchlist_pending_sync": "설정이 업데이트되었습니다. 다음 순자산 동기화 시 반영됩니다",
+    "watchlist_fund_cum": "기간 누적",
+    "watchlist_fund_best": "최고 일간",
+    "watchlist_fund_worst": "최저 일간",
+    "watchlist_fund_avg": "일평균",
+    "watchlist_fund_trend": "누적 수익률 추이",
+    "watchlist_fund_daily": "일별 등락"
   },
   "dialog": {
     "create_title": "New asset profile",

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
@@ -136,22 +137,23 @@ describe("FundPortfolioDashboard", () => {
 });
 
 describe("FundPortfolioDashboard watchlist", () => {
-  it("renders the watchlist card with cumulative returns per fund", () => {
-    renderDashboard({
-      ...PORTFOLIO_DOC,
-      watchlist: {
-        name: "trial",
-        funds: [
-          { code: "510300", name: "沪深300ETF", weight: 60, added_at: "2026-10-20" },
-          { code: "512890", name: "红利低波ETF", weight: 40, added_at: "2026-10-20" },
-        ],
-        baseline: "2026-10-20",
-      },
-      watchlist_pnl: [
-        { date: "2026-10-23", per_fund_pct: { "510300": 1.44, "512890": 0.3 }, weighted_pct: 0.98, cum_pct: 0.98 },
-        { date: "2026-10-26", per_fund_pct: { "510300": -0.03 }, weighted_pct: -0.03, cum_pct: 0.95 },
+  const WATCHLIST_DOC = {
+    watchlist: {
+      name: "trial",
+      funds: [
+        { code: "510300", name: "沪深300ETF", weight: 60, added_at: "2026-10-20" },
+        { code: "512890", name: "红利低波ETF", weight: 40, added_at: "2026-10-20" },
       ],
-    });
+      baseline: "2026-10-20",
+    },
+    watchlist_pnl: [
+      { date: "2026-10-23", per_fund_pct: { "510300": 1.44, "512890": 0.3 }, weighted_pct: 0.98, cum_pct: 0.98 },
+      { date: "2026-10-26", per_fund_pct: { "510300": -0.03 }, weighted_pct: -0.03, cum_pct: 0.95 },
+    ],
+  };
+
+  it("renders the watchlist card with cumulative returns per fund", () => {
+    renderDashboard({ ...PORTFOLIO_DOC, ...WATCHLIST_DOC });
 
     expect(screen.getByText("Watchlist")).toBeTruthy();
     expect(screen.getByText("trial")).toBeTruthy();
@@ -159,6 +161,37 @@ describe("FundPortfolioDashboard watchlist", () => {
     // per-fund compounded return since baseline (510300: 1.0144×0.9997−1 ≈ 1.41%)
     expect(screen.getByText("60%")).toBeTruthy();
     expect(screen.getByText("+1.41%")).toBeTruthy();
+    // Config matches the synced series, so no pending-sync flag.
+    expect(screen.queryByText("Config updated — refreshes on the next NAV sync")).toBeNull();
+  });
+
+  it("opens the per-fund trend dialog when a fund chip is clicked", async () => {
+    const user = userEvent.setup();
+    renderDashboard({ ...PORTFOLIO_DOC, ...WATCHLIST_DOC });
+
+    await user.click(screen.getByRole("button", { name: /沪深300ETF/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Total return")).toBeTruthy();
+    expect(within(dialog).getByText("+1.41%")).toBeTruthy();
+    expect(within(dialog).getByText("Cumulative return")).toBeTruthy();
+    expect(within(dialog).getByText("Daily change")).toBeTruthy();
+  });
+
+  it("flags config drift with a pending-sync badge", () => {
+    renderDashboard({
+      ...PORTFOLIO_DOC,
+      ...WATCHLIST_DOC,
+      watchlist: {
+        ...WATCHLIST_DOC.watchlist,
+        funds: [
+          ...WATCHLIST_DOC.watchlist.funds,
+          { code: "588000", name: "科创50ETF", weight: 10, added_at: "2026-10-27" },
+        ],
+      },
+    });
+
+    expect(screen.getByText("Config updated — refreshes on the next NAV sync")).toBeTruthy();
   });
 
   it("omits the watchlist card when there is no watchlist data", () => {
