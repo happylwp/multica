@@ -164,6 +164,10 @@ func runContext(ctx context.Context, timeout time.Duration) (context.Context, co
 
 // Session represents a running agent execution.
 type Session struct {
+	// CleanupRequired means Result is also the acknowledgement that the
+	// backend's bounded process cleanup finished. A missing acknowledgement
+	// must prevent automatic continuation, even after upstream cancellation.
+	CleanupRequired bool
 	// Supplement delivers an additional human instruction to the currently
 	// active provider turn. Nil means the backend cannot safely do so.
 	// Adapters bound their own transport calls; a hook-based adapter may wait
@@ -403,6 +407,7 @@ var SupportedTypes = []string{
 	"mcode",
 	"muse",
 	"dim",
+	"devin",
 	"zeroclaw",
 }
 
@@ -507,6 +512,8 @@ func New(agentType string, cfg Config) (Backend, error) {
 		return &qwenpawBackend{cfg: cfg}, nil
 	case "mcode":
 		return &mcodeBackend{cfg: cfg}, nil
+	case "devin":
+		return &devinBackend{cfg: cfg}, nil
 	case "muse":
 		return &museBackend{cfg: cfg}, nil
 	case "zeroclaw":
@@ -556,6 +563,7 @@ var launchHeaders = map[string]string{
 	"qwen":        "qwen -p (stream-json)",
 	"qwenpaw":     "qwenpaw acp",
 	"dim":         "dim acp",
+	"devin":       "devin acp",
 	"mcode":       "mcode acp",
 	"muse":        "muse serve (msp)",
 	"zeroclaw":    "zeroclaw acp",
