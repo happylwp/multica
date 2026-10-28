@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { motion, MotionConfig } from "motion/react";
 import {
   Area,
@@ -16,6 +17,7 @@ import {
 } from "recharts";
 import {
   CalendarDays,
+  Coins,
   LineChart as LineChartIcon,
   PieChart as PieChartIcon,
   ScrollText,
@@ -42,6 +44,7 @@ import {
   type FundPortfolio,
   type WatchlistPnl,
 } from "../fund-portfolio";
+import { fetchGoldQuotes, type GoldQuote } from "../eastmoney";
 import { AnimatedNumber } from "./animated-number";
 import { FundDetailDialog } from "./fund-detail-dialog";
 
@@ -90,6 +93,39 @@ const rise = (delay: number) => ({
   animate: { opacity: 1, y: 0 },
   transition: { delay, duration: 0.35, ease: "easeOut" as const },
 });
+
+// One gold quote line: label + price with unit + colored change. Hidden
+// when that leg failed to load — the card shows whatever arrived.
+function GoldRow({
+  label,
+  unit,
+  quote,
+  digits,
+}: {
+  label: string;
+  unit: string;
+  quote: GoldQuote | null;
+  digits: number;
+}) {
+  if (!quote) return null;
+  const up = quote.change >= 0;
+  const tone = up ? "text-red-500 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400";
+  return (
+    <div className="flex items-baseline justify-between gap-3 font-mono text-caption tabular-nums">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="flex items-baseline gap-2">
+        <span className="font-medium">
+          {quote.price.toFixed(digits)} {unit}
+        </span>
+        <span className={tone}>
+          {up ? "+" : ""}
+          {quote.change.toFixed(digits)} ({up ? "+" : ""}
+          {quote.changePct}%)
+        </span>
+      </span>
+    </div>
+  );
+}
 
 /**
  * Visual dashboard for fund-portfolio documents. Sections enter with a
@@ -144,6 +180,17 @@ export function FundPortfolioDashboard({
       watchlistCumByCode.set(wf.code, Math.round((cum - 1) * 10000) / 100);
     }
   }
+
+  // Live gold reference (COMEX futures + SGE AU9999) next to the gold
+  // holding; refetches on window focus, 30s staleness keeps it near-live.
+  const gold = useQuery({
+    queryKey: ["goldQuotes"],
+    queryFn: fetchGoldQuotes,
+    staleTime: 30_000,
+    retry: 1,
+  });
+  const goldEtfNav = portfolio.fund_details["000307"]?.trend.at(-1);
+  const goldUpdated = [gold.data?.comex, gold.data?.sge].find((q) => q && q.time > 0);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -588,6 +635,56 @@ export function FundPortfolioDashboard({
                     </span>
                   ))}
                 </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : null}
+
+        {gold.data?.comex || gold.data?.sge ? (
+          <motion.div {...rise(0.54)}>
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-1.5">
+                  <Coins aria-hidden="true" className="size-4 text-muted-foreground" />
+                  {t(($) => $.dashboard.gold_ref)}
+                </CardTitle>
+                {goldUpdated ? (
+                  <CardDescription>
+                    {t(($) => $.dashboard.gold_updated, {
+                      time: new Date(goldUpdated.time).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }),
+                    })}
+                  </CardDescription>
+                ) : null}
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                <GoldRow
+                  label={t(($) => $.dashboard.gold_comex)}
+                  unit={t(($) => $.dashboard.gold_unit_usd)}
+                  quote={gold.data.comex}
+                  digits={1}
+                />
+                <GoldRow
+                  label={t(($) => $.dashboard.gold_sge)}
+                  unit={t(($) => $.dashboard.gold_unit_cny)}
+                  quote={gold.data.sge}
+                  digits={2}
+                />
+                {goldEtfNav ? (
+                  <div className="flex items-baseline justify-between gap-3 border-t pt-1.5 font-mono text-caption tabular-nums">
+                    <span className="text-muted-foreground">
+                      {t(($) => $.dashboard.gold_etf)}
+                    </span>
+                    <span>
+                      {t(($) => $.dashboard.gold_etf_nav, {
+                        nav: goldEtfNav.v.toFixed(4),
+                        date: goldEtfNav.d,
+                      })}
+                    </span>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           </motion.div>

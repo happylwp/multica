@@ -50,7 +50,15 @@
     "watchlist": "观察组合",
     "watchlist_unnamed": "未命名",
     "watchlist_window": "自 {{since}} 起 · {{days}} 个交易日 · 累计 {{cum}}",
-    "watchlist_cum": "累计 {{cum}}"
+    "watchlist_cum": "累计 {{cum}}",
+    "gold_ref": "金价参考",
+    "gold_updated": "更新于 {{time}}",
+    "gold_comex": "COMEX 黄金（纽约金）",
+    "gold_sge": "上海金 AU9999",
+    "gold_unit_usd": "美元/盎司",
+    "gold_unit_cny": "元/克",
+    "gold_etf": "黄金 ETF 联接（000307）",
+    "gold_etf_nav": "最新净值 {{nav}}（{{date}}）"
   },
   "dialog": {
     "create_title": "新建资产档案",

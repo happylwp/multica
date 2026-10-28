@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { extractEastMoneyGlobals } from "./eastmoney";
+import { extractEastMoneyGlobals, parseGoldQuote } from "./eastmoney";
 
 describe("extractEastMoneyGlobals", () => {
   it("reads name, latest NAV and trailing returns from loaded globals", () => {
@@ -40,5 +40,36 @@ describe("extractEastMoneyGlobals", () => {
   it("treats non-finite return strings as null", () => {
     const fund = extractEastMoneyGlobals({ syl_1n: "" }, "000000");
     expect(fund.returns.y1).toBeNull();
+  });
+});
+
+describe("parseGoldQuote", () => {
+  it("maps push2 fields to a quote", () => {
+    const q = parseGoldQuote({ f43: 4008.1, f58: "COMEX黄金", f60: 4038.4, f169: -30.3, f170: -0.75, f86: 1793090386 });
+    expect(q).toEqual({
+      name: "COMEX黄金",
+      price: 4008.1,
+      prevClose: 4038.4,
+      change: -30.3,
+      changePct: -0.75,
+      time: 1793090386000,
+    });
+  });
+
+  it("returns null without a usable price", () => {
+    expect(parseGoldQuote(null)).toBeNull();
+    expect(parseGoldQuote({})).toBeNull();
+    expect(parseGoldQuote({ f43: "-" })).toBeNull();
+  });
+
+  it("defaults the optional fields when only the price exists", () => {
+    expect(parseGoldQuote({ f43: 860.31 })).toEqual({
+      name: "",
+      price: 860.31,
+      prevClose: 0,
+      change: 0,
+      changePct: 0,
+      time: 0,
+    });
   });
 });

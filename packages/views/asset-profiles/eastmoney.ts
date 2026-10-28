@@ -100,3 +100,56 @@ export function fetchEastMoneyFund(code: string, timeoutMs = 8000): Promise<East
     document.head.appendChild(script);
   });
 }
+
+// Live gold quotes from East Money's push2 endpoint: COMEX front-month
+// futures (NY gold) and SGE AU9999 spot (what the domestic gold ETFs
+// track). Unlike pingzhongdata, push2 sends Access-Control-Allow-Origin:
+// *, so a plain fetch works — no script-tag workaround.
+
+export type GoldQuote = {
+  name: string;
+  price: number;
+  prevClose: number;
+  change: number;
+  changePct: number;
+  time: number; // epoch ms
+};
+
+// push2 field map with fltt=2 (pre-formatted numbers): f43 latest, f58
+// name, f60 prev close, f169 change, f170 change %, f86 update time (s).
+export function parseGoldQuote(data: unknown): GoldQuote | null {
+  if (typeof data !== "object" || data === null) return null;
+  const d = data as Record<string, unknown>;
+  const price = toNumber(d.f43);
+  if (price === null) return null;
+  return {
+    name: typeof d.f58 === "string" ? d.f58 : "",
+    price,
+    prevClose: toNumber(d.f60) ?? 0,
+    change: toNumber(d.f169) ?? 0,
+    changePct: toNumber(d.f170) ?? 0,
+    time: toNumber(d.f86) !== null ? (toNumber(d.f86) as number) * 1000 : 0,
+  };
+}
+
+async function fetchSecidQuote(secid: string, timeoutMs = 8000): Promise<GoldQuote | null> {
+  const url =
+    "https://push2.eastmoney.com/api/qt/stock/get?secid=" +
+    encodeURIComponent(secid) +
+    "&fields=f43,f58,f60,f169,f170,f86&fltt=2&invt=2";
+  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) return null;
+  return parseGoldQuote((await res.json())?.data);
+}
+
+// Null per leg on failure: the card shows whichever quote arrived.
+export async function fetchGoldQuotes(): Promise<{ comex: GoldQuote | null; sge: GoldQuote | null }> {
+  const [comex, sge] = await Promise.allSettled([
+    fetchSecidQuote("101.GC00Y"),
+    fetchSecidQuote("118.AU9999"),
+  ]);
+  return {
+    comex: comex.status === "fulfilled" ? comex.value : null,
+    sge: sge.status === "fulfilled" ? sge.value : null,
+  };
+}

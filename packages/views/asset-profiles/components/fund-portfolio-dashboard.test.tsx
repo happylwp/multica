@@ -1,11 +1,16 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
 import enAssets from "../../locales/en/assets.json";
 import { parseFundPortfolio } from "../fund-portfolio";
 import { FundPortfolioDashboard } from "./fund-portfolio-dashboard";
+
+const mockGold = vi.hoisted(() => vi.fn());
+mockGold.mockResolvedValue({ comex: null, sge: null });
+vi.mock("../eastmoney", () => ({ fetchGoldQuotes: mockGold }));
 
 // The dashboard is a pure view over the parsed document — parsing matrices
 // live in fund-portfolio.test.ts, so here we assert the wiring: KPI values
@@ -47,10 +52,13 @@ const TEST_RESOURCES = {
 
 function renderDashboard(doc: unknown) {
   const portfolio = parseFundPortfolio(doc)!;
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <I18nProvider locale="en" resources={TEST_RESOURCES}>
-      <FundPortfolioDashboard portfolio={portfolio} />
-    </I18nProvider>,
+    <QueryClientProvider client={qc}>
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <FundPortfolioDashboard portfolio={portfolio} />
+      </I18nProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -157,5 +165,46 @@ describe("FundPortfolioDashboard watchlist", () => {
     renderDashboard(PORTFOLIO_DOC);
 
     expect(screen.queryByText("Watchlist")).toBeNull();
+  });
+});
+
+describe("FundPortfolioDashboard gold reference", () => {
+  it("renders live COMEX and SGE quotes with the gold holding's NAV", async () => {
+    mockGold.mockResolvedValue({
+      comex: {
+        name: "COMEX黄金",
+        price: 4008.1,
+        prevClose: 4038.4,
+        change: -30.3,
+        changePct: -0.75,
+        time: 1793090386000,
+      },
+      sge: {
+        name: "黄金9999",
+        price: 860.31,
+        prevClose: 861.41,
+        change: -1.1,
+        changePct: -0.13,
+        time: 1793087100000,
+      },
+    });
+    renderDashboard({
+      ...PORTFOLIO_DOC,
+      fund_details: { "000307": { trend: [{ d: "10-26", v: 2.8305 }] } },
+    });
+
+    expect(await screen.findByText("4008.1 USD/oz")).toBeTruthy();
+    expect(screen.getByText("860.31 CNY/g")).toBeTruthy();
+    expect(screen.getByText("-30.3 (-0.75%)")).toBeTruthy();
+    expect(screen.getByText(/Latest NAV 2.8305/)).toBeTruthy();
+  });
+
+  it("hides the card entirely when both quotes fail", async () => {
+    mockGold.mockResolvedValue({ comex: null, sge: null });
+    renderDashboard(PORTFOLIO_DOC);
+
+    // give the query a tick to settle before asserting absence
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText("Gold reference")).toBeNull();
   });
 });
