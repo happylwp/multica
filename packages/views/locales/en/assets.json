@@ -50,7 +50,15 @@
     "watchlist": "Watchlist",
     "watchlist_unnamed": "unnamed",
     "watchlist_window": "Since {{since}} · {{days}} days · cum {{cum}}",
-    "watchlist_cum": "cum {{cum}}"
+    "watchlist_cum": "cum {{cum}}",
+    "gold_ref": "Gold reference",
+    "gold_updated": "Updated {{time}}",
+    "gold_comex": "COMEX gold (NY)",
+    "gold_sge": "SGE AU9999",
+    "gold_unit_usd": "USD/oz",
+    "gold_unit_cny": "CNY/g",
+    "gold_etf": "Gold ETF feeder (000307)",
+    "gold_etf_nav": "Latest NAV {{nav}} ({{date}})"
   },
   "dialog": {
     "create_title": "New asset profile",
