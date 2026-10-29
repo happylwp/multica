@@ -178,5 +178,21 @@
     "clear_filter": "清除篩選",
     "no_matches": "沒有匹配的行",
     "close": "關閉"
+  },
+  "code_diff": {
+    "view_changes": "查看代碼變更",
+    "title": "代碼變更",
+    "files": "{{count}} 個文件",
+    "file_list": "變更文件",
+    "binary": "二進制文件",
+    "renamed": "已重命名",
+    "empty": "此 diff 沒有文件變更。",
+    "parse_failed": "無法解析此 diff，請下載文件查看。",
+    "unified": "統一",
+    "split": "分欄",
+    "collapse_file": "摺疊文件",
+    "expand_file": "展開文件",
+    "expand_context": "展開 {{count}} 行未變更",
+    "render_failed": "無法渲染這個文件。"
   }
 }
