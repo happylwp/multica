@@ -6,9 +6,13 @@
 --
 -- No FK to workspace/"user" by design (repository DB rules); readers join
 -- current members and writers resolve membership in handlers. Indexes are
--- built concurrently in 594-597, following member_delegation_day (589-591),
+-- built concurrently in 599-602, following member_delegation_day (589-591),
 -- so no migration below builds an index inline.
-CREATE TABLE asset_profile (
+--
+-- Originally shipped as 593; renumbered past the upstream 593/594 pair after
+-- a sync, so deployments that already applied the old numbers replay this
+-- file — hence the idempotent guard.
+CREATE TABLE IF NOT EXISTS asset_profile (
     id UUID NOT NULL DEFAULT gen_random_uuid(),
     workspace_id UUID NOT NULL,
     name TEXT NOT NULL,
