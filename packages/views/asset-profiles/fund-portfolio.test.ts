@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { parseFundPortfolio, portfolioTotals } from "./fund-portfolio";
+import { parseFundPortfolio, portfolioTotals, watchlistFundSeries } from "./fund-portfolio";
 
 const fund = {
   code: "161716",
@@ -118,5 +118,22 @@ describe("watchlist", () => {
 
     expect(p.watchlist).toBeNull();
     expect(p.watchlist_pnl[0]).toMatchObject({ weighted_pct: 0, cum_pct: 0 });
+  });
+
+  it("compounds a per-fund series and skips unpublished days", () => {
+    const series = watchlistFundSeries(
+      [
+        { date: "2026-10-26", per_fund_pct: { "510300": 1.44, other: 2 }, weighted_pct: 1.5, cum_pct: 1.5 },
+        { date: "2026-10-27", per_fund_pct: { other: 0.5 }, weighted_pct: 0.5, cum_pct: 2.0 },
+        { date: "2026-10-28", per_fund_pct: { "510300": -1 }, weighted_pct: -1, cum_pct: 0.4 },
+      ],
+      "510300",
+    );
+
+    // 1.0144 × 0.99 − 1 ≈ 0.43%; the 10-27 entry (no 510300 NAV) is dropped.
+    expect(series).toEqual([
+      { date: "2026-10-26", daily: 1.44, cum: 1.44 },
+      { date: "2026-10-28", daily: -1, cum: 0.43 },
+    ]);
   });
 });

@@ -169,6 +169,26 @@ export function parseFundPortfolio(data: unknown): FundPortfolio | null {
   return result.success ? result.data : null;
 }
 
+/**
+ * Per-fund return series since the watchlist baseline: each entry carries
+ * the day's change and the compounded return so far. Days where the fund
+ * hadn't published a NAV yet are skipped.
+ */
+export function watchlistFundSeries(
+  pnl: WatchlistPnl[],
+  code: string,
+): { date: string; daily: number; cum: number }[] {
+  let factor = 1;
+  const out: { date: string; daily: number; cum: number }[] = [];
+  for (const e of pnl) {
+    const daily = e.per_fund_pct[code];
+    if (daily == null) continue;
+    factor *= 1 + daily / 100;
+    out.push({ date: e.date, daily, cum: Math.round((factor - 1) * 10000) / 100 });
+  }
+  return out;
+}
+
 // Totals can lag the positions in a hand-edited document; recompute any
 // missing field from the funds rather than showing blanks.
 export function portfolioTotals(portfolio: FundPortfolio) {

@@ -76,6 +76,7 @@ import zhHantUsage from "./zh-Hant/usage.json";
 import zhHantUi from "./zh-Hant/ui.json";
 import zhHantSquads from "./zh-Hant/squads.json";
 import zhHantBilling from "./zh-Hant/billing.json";
+import zhHantAssets from "./zh-Hant/assets.json";
 import koCommon from "./ko/common.json";
 import koAuth from "./ko/auth.json";
 import koSettings from "./ko/settings.json";
@@ -241,6 +242,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     ui: zhHantUi,
     squads: zhHantSquads,
     billing: zhHantBilling,
+    assets: zhHantAssets,
   },
   ko: {
     common: koCommon,
