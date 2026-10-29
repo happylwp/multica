@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Plus, Search, Trash2 } from "@multica/ui/icons";
 import { api } from "@multica/core/api";
 import { assetProfileDetailOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import type { AssetProfile } from "@multica/core/types";

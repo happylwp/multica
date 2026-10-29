@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertCircle, Loader2, Workflow } from "lucide-react";
+import { AlertCircle, Loader2, Workflow } from "@multica/ui/icons";
 import { useT } from "../../i18n";
 import {
   CollectionPageHeader,

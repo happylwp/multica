@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, X } from "lucide-react";
+import { Loader2, X } from "@multica/ui/icons";
 import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
 import {
   Dialog,

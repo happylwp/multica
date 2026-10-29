@@ -13,7 +13,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Star, TrendingUp } from "lucide-react";
+import { Star, TrendingUp } from "@multica/ui/icons";
 import { Badge } from "@multica/ui/components/ui/badge";
 import {
   ChartContainer,

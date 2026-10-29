@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ChevronRight, Trash2 } from "lucide-react";
+import { ChevronRight, Trash2 } from "@multica/ui/icons";
 import { WechatMark } from "./wechat-mark";
 import { cn } from "@multica/ui/lib/utils";
 import { Button } from "@multica/ui/components/ui/button";

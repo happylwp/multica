@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, MotionConfig } from "motion/react";
-import { Archive, Plus } from "lucide-react";
+import { Archive, Plus } from "@multica/ui/icons";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { assetProfileListOptions } from "@multica/core/workspace/queries";

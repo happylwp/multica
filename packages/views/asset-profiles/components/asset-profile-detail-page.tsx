@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowLeft, Check, Copy, LineChart, ListPlus, Pencil, Trash2 } from "lucide-react";
+import { Archive, ArrowLeft, Check, Copy, LineChart, ListPlus, Pencil, Trash2 } from "@multica/ui/icons";
 import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";

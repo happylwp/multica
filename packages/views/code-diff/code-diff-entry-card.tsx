@@ -1,6 +1,6 @@
 "use client";
 
-import { FileCode2 } from "lucide-react";
+import { FileCode2 } from "@multica/ui/icons";
 import { useT } from "../i18n";
 import { cn } from "@multica/ui/lib/utils";
 

@@ -22,7 +22,7 @@ import {
   PieChart as PieChartIcon,
   ScrollText,
   TrendingUp,
-} from "lucide-react";
+} from "@multica/ui/icons";
 import { Badge } from "@multica/ui/components/ui/badge";
 import {
   Card,
