@@ -138,13 +138,13 @@
     "empty_funds": "Keep at least one fund"
   },
   "watchlist_editor": {
-    "open": "Edit watchlist",
-    "title": "Watchlist",
-    "description": "Virtual portfolio of funds you do not necessarily hold; the daily sync computes its weighted returns.",
-    "name": "Watchlist name",
-    "weight": "Weight %",
-    "add_hint": "Add any 6-digit fund code to track it without holding it",
-    "bad_weight": "weight must be a positive number",
-    "backfill_hint": "A new watchlist backfills the last 30 days of NAVs at these weights, so the chart starts with a month of history"
+    "open": "Modifier la liste d'observation",
+    "title": "Liste d'observation",
+    "description": "Portefeuille virtuel de fonds non nécessairement détenus ; la synchronisation quotidienne calcule leurs rendements pondérés.",
+    "name": "Nom de la liste",
+    "weight": "Pondération %",
+    "add_hint": "Ajoutez n'importe quel code de fonds à 6 chiffres pour le suivre sans le détenir",
+    "bad_weight": "la pondération doit être un nombre positif",
+    "backfill_hint": "Une nouvelle liste d'observation reconstitue un an de valeurs liquidatives à ces pondérations ; l'historique couvre donc douze mois dès la première synchronisation"
   }
 }
