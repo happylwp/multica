@@ -13,7 +13,7 @@
     "skills": "スキル",
     "settings": "設定",
     "views": "ビュー",
-    "assets": "Assets",
+    "assets": "資産アーカイブ",
     "orchestration": "オーケストレーション"
   },
   "tab": {
@@ -74,6 +74,8 @@
     "sheet_description": "スペースとワークスペースを切り替えます。",
     "inbox": "受信箱",
     "work": "作業",
+    "orchestration": "編成",
+    "assets": "資産",
     "team": "チーム",
     "chat": "チャット",
     "autopilots": "自動化",

@@ -74,6 +74,8 @@
     "sheet_description": "切換空間和工作區。",
     "inbox": "收件箱",
     "work": "工作",
+    "orchestration": "編排",
+    "assets": "資產",
     "team": "團隊",
     "chat": "聊天",
     "autopilots": "自動化",

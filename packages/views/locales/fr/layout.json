@@ -13,7 +13,7 @@
     "skills": "Skills",
     "settings": "Paramètres",
     "views": "Vues",
-    "assets": "Assets",
+    "assets": "Actifs",
     "orchestration": "Orchestration"
   },
   "tab": {
@@ -74,6 +74,8 @@
     "sheet_description": "Changer d'espace et d'espace de travail.",
     "inbox": "Boîte",
     "work": "Travail",
+    "orchestration": "Flux",
+    "assets": "Actifs",
     "team": "Équipe",
     "chat": "Chat",
     "autopilots": "Auto",
