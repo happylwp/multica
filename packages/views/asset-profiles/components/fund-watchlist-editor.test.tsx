@@ -100,6 +100,7 @@ describe("FundWatchlistEditorDialog", () => {
       name: "trial",
       funds: [{ code: "510300", name: "沪深300ETF", weight: 40, added_at: "2026-10-26" }],
       baseline: "2026-10-26",
+      trades: [],
     });
     // the rest of the document is preserved, including server-generated
     // returns fetched fresh at save time
@@ -145,6 +146,43 @@ describe("FundWatchlistEditorDialog", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText(/weight must be a positive number/)).toBeTruthy();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("adds a trade row and saves it with the watchlist", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockResolvedValue({});
+    mockFetchQuery.mockResolvedValue({ ...PROFILE, data: { ...PROFILE.data } });
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Add trade" }));
+    // New rows prefill today + the first member + buy; only the amount
+    // needs typing.
+    await user.type(screen.getByLabelText("Amount ¥"), "10000");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await vi.waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(1));
+    const payload = mockUpdate.mock.calls[0]![1];
+    expect(payload.data.watchlist.trades).toEqual([
+      {
+        id: expect.any(String),
+        code: "510300",
+        date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        side: "buy",
+        amount: 10000,
+        fee_pct: 0,
+      },
+    ]);
+  });
+
+  it("rejects a buy without an amount", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Add trade" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText(/A buy needs an amount/)).toBeTruthy();
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 });
