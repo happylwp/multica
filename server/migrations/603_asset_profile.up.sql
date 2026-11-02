@@ -6,7 +6,7 @@
 --
 -- No FK to workspace/"user" by design (repository DB rules); readers join
 -- current members and writers resolve membership in handlers. Indexes are
--- built concurrently in 599-602, following member_delegation_day (589-591),
+-- built concurrently in 604-607, following member_delegation_day (589-591),
 -- so no migration below builds an index inline.
 --
 -- Originally shipped as 593; renumbered past the upstream 593/594 pair after
