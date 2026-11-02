@@ -2,7 +2,6 @@
 
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Archive, Workflow } from "@multica/ui/icons";
 import { useAuthStore } from "@multica/core/auth";
 import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
 import { isIssueUuid } from "@multica/core/issues/canonical-id";
@@ -16,7 +15,7 @@ import type { Project } from "@multica/core/types";
 import { useNavigation } from "../../navigation";
 import { IssueContextMenuProvider } from "../../issues/actions";
 import { useT } from "../../i18n";
-import { PanelBody, PanelHeader, PanelLink, PanelList, isPathWithin } from "../panel-nav";
+import { PanelBody, PanelHeader, isPathWithin } from "../panel-nav";
 import { PinnedSection, usePanelPins } from "./pinned-section";
 import { useKeptActiveItem } from "./sidebar-tree";
 import { ProjectsSection, useIssueIdInTree } from "./work-tree";
@@ -133,20 +132,6 @@ export function WorkPanel() {
           through the React tree, and must not reach rememberClickedIssue. */}
       <IssueContextMenuProvider variant="sidebar">
         <PanelBody onClickCapture={rememberClickedIssue}>
-          <PanelList>
-            <PanelLink
-              href={p.orchestration()}
-              icon={<Workflow />}
-              label={t(($) => $.nav.orchestration)}
-              active={isPathWithin(pathname, p.orchestration())}
-            />
-            <PanelLink
-              href={p.assets()}
-              icon={<Archive />}
-              label={t(($) => $.nav.assets)}
-              active={isPathWithin(pathname, p.assets())}
-            />
-          </PanelList>
           {wsId && (
             <ViewsSection
               wsId={wsId}

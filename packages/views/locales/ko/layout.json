@@ -13,7 +13,7 @@
     "skills": "스킬",
     "settings": "설정",
     "views": "뷰",
-    "assets": "Assets",
+    "assets": "자산 아카이브",
     "orchestration": "오케스트레이션"
   },
   "tab": {
@@ -74,6 +74,8 @@
     "sheet_description": "스페이스와 워크스페이스를 전환합니다.",
     "inbox": "인박스",
     "work": "작업",
+    "orchestration": "편성",
+    "assets": "자산",
     "team": "팀",
     "chat": "채팅",
     "autopilots": "자동화",

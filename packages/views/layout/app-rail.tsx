@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Settings, Users, type IconComponent } from "@multica/ui/icons";
+import { Archive, Settings, Users, Workflow, type IconComponent } from "@multica/ui/icons";
 import { useChatStore } from "@multica/core/chat";
 import { chatSessionsOptions } from "@multica/core/chat/queries";
 import { countUnreadChatMessages } from "@multica/core/chat/unread";
@@ -193,6 +193,18 @@ export function AppRail({
       icon: routeIconForPath(p.issues()),
       label: t(($) => $.rail.work),
       fullLabel: t(($) => $.spaces.work),
+    },
+    orchestration: {
+      href: p.orchestration(),
+      icon: Workflow,
+      label: t(($) => $.rail.orchestration),
+      fullLabel: t(($) => $.nav.orchestration),
+    },
+    assets: {
+      href: p.assets(),
+      icon: Archive,
+      label: t(($) => $.rail.assets),
+      fullLabel: t(($) => $.nav.assets),
     },
     team: {
       href: p.agents(),

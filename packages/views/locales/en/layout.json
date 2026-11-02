@@ -74,6 +74,8 @@
     "sheet_description": "Switch spaces and workspaces.",
     "inbox": "Inbox",
     "work": "Work",
+    "orchestration": "Flows",
+    "assets": "Assets",
     "team": "Team",
     "chat": "Chat",
     "autopilots": "Auto",
