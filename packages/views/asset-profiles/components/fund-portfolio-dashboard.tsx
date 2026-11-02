@@ -49,6 +49,7 @@ import { fetchGoldQuotes, type GoldQuote } from "../eastmoney";
 import { AnimatedNumber } from "./animated-number";
 import { FundDetailDialog } from "./fund-detail-dialog";
 import { FundWatchlistFundDialog } from "./fund-watchlist-fund-dialog";
+import { FundWatchlistLedgerCard } from "./fund-watchlist-ledger-card";
 
 // CN market convention: red = gain, green = loss. Both stops stay readable
 // in light and dark themes.
@@ -197,6 +198,14 @@ export function FundPortfolioDashboard({
         [...pnlCodes].some((c) => !configCodes.has(c))
       );
     })();
+
+  // Ledger mode: with trades logged the sync job simulates real cash flows;
+  // a trade-count mismatch means the ledger predates the latest edits.
+  const ledger = portfolio.watch_ledger;
+  const ledgerStale =
+    watchlist != null &&
+    ledger?.summary != null &&
+    ledger.summary.trade_count !== watchlist.trades.length;
 
   // Live gold reference (COMEX futures + SGE AU9999) next to the gold
   // holding; refetches on window focus, 30s staleness keeps it near-live.
@@ -535,7 +544,15 @@ export function FundPortfolioDashboard({
           </motion.div>
         ) : null}
 
-        {watchlist && watchlist.funds.length > 0 && watchlistPnl.length > 0 ? (
+        {ledger?.summary != null && watchlist ? (
+          <motion.div {...rise(0.15)}>
+            <FundWatchlistLedgerCard
+              ledger={ledger}
+              name={watchlist.name || t(($) => $.dashboard.watchlist_unnamed)}
+              stale={watchlistStale || ledgerStale}
+            />
+          </motion.div>
+        ) : watchlist && watchlist.funds.length > 0 && watchlistPnl.length > 0 ? (
           <motion.div {...rise(0.15)}>
             <Card size="sm">
               <CardHeader>
@@ -837,9 +854,14 @@ export function FundPortfolioDashboard({
                         className="flex flex-wrap items-baseline gap-2"
                       >
                         <Badge variant="secondary" className="font-mono">
-                          {t(($) => $.dashboard.plan_monthly, { day: plan.day })}
+                          {plan.day != null
+                            ? t(($) => $.dashboard.plan_monthly, { day: plan.day })
+                            : t(($) => $.dashboard.plan_day_tbd)}
                         </Badge>
                         <Badge variant="outline" className="font-mono">{plan.code}</Badge>
+                        {plan.status === "pending_activation" ? (
+                          <Badge variant="outline">{t(($) => $.dashboard.plan_pending)}</Badge>
+                        ) : null}
                         <span className="font-mono text-body font-medium tabular-nums">
                           {formatCNY(plan.amount, 0)}
                         </span>

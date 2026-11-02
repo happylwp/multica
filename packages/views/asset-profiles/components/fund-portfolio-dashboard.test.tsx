@@ -85,6 +85,21 @@ describe("FundPortfolioDashboard", () => {
     expect(screen.getByText("gold_ceiling")).toBeTruthy();
   });
 
+  it("renders a pending plan alongside a dated one instead of dropping both", () => {
+    renderDashboard({
+      ...PORTFOLIO_DOC,
+      plans: [
+        { day: 15, code: "000307", amount: 900, effective_from: "2026-11" },
+        { day: null, code: "022460", amount: 1800, status: "pending_activation" },
+      ],
+    });
+
+    expect(screen.getByText("Monthly, day 15")).toBeTruthy();
+    expect(screen.getByText("Monthly, day TBD")).toBeTruthy();
+    expect(screen.getByText("022460")).toBeTruthy();
+    expect(screen.getByText("Pending")).toBeTruthy();
+  });
+
   it("labels known structure buckets and falls back to the raw key", () => {
     renderDashboard({
       funds: [{ code: "1", name: "n" }],
@@ -198,6 +213,80 @@ describe("FundPortfolioDashboard watchlist", () => {
     renderDashboard(PORTFOLIO_DOC);
 
     expect(screen.queryByText("Watchlist")).toBeNull();
+  });
+});
+
+describe("FundPortfolioDashboard ledger mode", () => {
+  const LEDGER_DOC = {
+    watchlist: {
+      name: "trial",
+      funds: [{ code: "510300", name: "沪深300ETF", weight: 100, added_at: "2026-10-20" }],
+      baseline: "2026-10-20",
+      trades: [{ id: "t1", code: "510300", date: "2026-10-21", side: "buy", amount: 10000, fee_pct: 0.1 }],
+    },
+    watch_ledger: {
+      daily: [
+        { date: "2026-10-21", mv: 9990, invested: 10000, pnl: -10, pnl_pct: -0.1, daily_pnl: 0, ret_pct: 0 },
+        { date: "2026-10-22", mv: 10100, invested: 10000, pnl: 100, pnl_pct: 1, daily_pnl: 110, ret_pct: 1.1 },
+      ],
+      summary: {
+        start_date: "2026-10-21",
+        end_date: "2026-10-22",
+        days: 2,
+        total_bought: 10000,
+        cost: 10000,
+        market_value: 10100,
+        cum_pnl: 100,
+        pnl_pct: 1,
+        realized_pnl: 0,
+        max_drawdown_pct: 0,
+        irr_pct: null,
+        trade_count: 1,
+        per_fund: [
+          {
+            code: "510300",
+            name: "沪深300ETF",
+            shares: 9900,
+            cost: 10000,
+            market_value: 10100,
+            cum_pnl: 100,
+            pnl_pct: 1,
+            realized_pnl: 0,
+            weight: 100,
+          },
+        ],
+      },
+    },
+  };
+
+  it("replaces the weight card with the simulated-portfolio card", () => {
+    renderDashboard({ ...PORTFOLIO_DOC, ...LEDGER_DOC });
+
+    expect(screen.getByText("Simulated portfolio")).toBeTruthy();
+    expect(screen.getByText("trial")).toBeTruthy();
+    expect(screen.getByText("2026-10-21 → 2026-10-22 · 2 trading days · 1 trades")).toBeTruthy();
+    expect(screen.getByText("¥10,100.00")).toBeTruthy();
+    expect(screen.getByText("Total bought")).toBeTruthy();
+    expect(screen.getByText("Current cost")).toBeTruthy();
+    // The weight-mode card gives way entirely.
+    expect(screen.queryByText("Watchlist")).toBeNull();
+    expect(screen.queryByText("Value vs cost")).not.toBeNull();
+  });
+
+  it("flags a stale ledger when trade counts mismatch", () => {
+    renderDashboard({
+      ...PORTFOLIO_DOC,
+      ...LEDGER_DOC,
+      watchlist: {
+        ...LEDGER_DOC.watchlist,
+        trades: [
+          ...LEDGER_DOC.watchlist.trades,
+          { id: "t2", code: "510300", date: "2026-10-22", side: "sell", shares: 100, fee_pct: 0.5 },
+        ],
+      },
+    });
+
+    expect(screen.getByText("Config updated — refreshes on the next NAV sync")).toBeTruthy();
   });
 });
 

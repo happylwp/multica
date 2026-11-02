@@ -22,10 +22,17 @@ const fundSchema = z.object({
 });
 
 const planSchema = z.object({
-  day: z.number(),
+  // day is null while the deduction day is still unconfirmed — a plan can be
+  // registered in the archive before the owner sets up the app-side
+  // auto-invest. Keep it nullable so one pending plan does not fail the whole
+  // array into the plans: catch([]) fallback (which hid ALL plans from the
+  // dashboard until 2026-11).
+  day: z.number().nullable().catch(null),
   code: z.string(),
   kind: z.string().catch(""),
   amount: z.number(),
+  status: z.string().optional(),
+  effective_from: z.string().optional(),
   note: z.string().optional(),
 });
 
@@ -115,6 +122,22 @@ const fundDetailSchema = z.object({
   fetched_at: z.string().catch(""),
 });
 
+// Manual trade log on the watchlist. When non-empty, the daily sync runs a
+// ledger simulation (shares bought/sold at adjusted NAVs, cost amortized on
+// sells) instead of the fixed-weight series. Buys carry `amount` (cash paid,
+// fee deducted outside); sells carry either `amount` (target proceeds) or
+// `shares`.
+const watchTradeSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  date: z.string(),
+  side: z.enum(["buy", "sell"]),
+  amount: z.number().optional(),
+  shares: z.number().optional(),
+  fee_pct: z.number().catch(0),
+  note: z.string().optional(),
+});
+
 // Watchlist: a virtual portfolio independent of the real holdings. Weights
 // are user-defined percentages; the daily sync rebuilds the weighted return
 // series from `baseline` on every run.
@@ -130,6 +153,7 @@ const watchlistSchema = z
     name: z.string().catch(""),
     funds: z.array(watchlistFundSchema).catch([]),
     baseline: z.string().catch(""),
+    trades: z.array(watchTradeSchema).catch([]),
   })
   .nullable()
   .catch(null);
@@ -141,6 +165,56 @@ const watchlistPnlSchema = z.object({
   cum_pct: z.number().catch(0),
 });
 
+// Ledger simulation output, rebuilt from the first trade date on every sync.
+const ledgerDailySchema = z.object({
+  date: z.string(),
+  mv: z.number().catch(0),
+  invested: z.number().catch(0),
+  pnl: z.number().catch(0),
+  pnl_pct: z.number().catch(0),
+  daily_pnl: z.number().catch(0),
+  ret_pct: z.number().catch(0),
+});
+
+const ledgerPerFundSchema = z.object({
+  code: z.string(),
+  name: z.string().catch(""),
+  shares: z.number().catch(0),
+  cost: z.number().catch(0),
+  market_value: z.number().catch(0),
+  cum_pnl: z.number().catch(0),
+  pnl_pct: z.number().catch(0),
+  realized_pnl: z.number().catch(0),
+  weight: z.number().catch(0),
+});
+
+const watchLedgerSchema = z
+  .object({
+    daily: z.array(ledgerDailySchema).catch([]),
+    summary: z
+      .object({
+        start_date: z.string().catch(""),
+        end_date: z.string().catch(""),
+        days: z.number().catch(0),
+        total_bought: z.number().catch(0),
+        cost: z.number().catch(0),
+        market_value: z.number().catch(0),
+        cum_pnl: z.number().catch(0),
+        pnl_pct: z.number().catch(0),
+        realized_pnl: z.number().catch(0),
+        max_drawdown_pct: z.number().catch(0),
+        // XIRR is null when the span is too short to annualize or the root
+        // has no solution.
+        irr_pct: z.number().nullable().catch(null),
+        trade_count: z.number().catch(0),
+        per_fund: z.array(ledgerPerFundSchema).catch([]),
+      })
+      .nullable()
+      .catch(null),
+  })
+  .nullable()
+  .catch(null);
+
 export const fundPortfolioSchema = z.object({
   funds: z.array(fundSchema).min(1),
   totals: totalsSchema.optional(),
@@ -151,6 +225,7 @@ export const fundPortfolioSchema = z.object({
   fund_details: z.record(z.string(), fundDetailSchema).catch({}),
   watchlist: watchlistSchema,
   watchlist_pnl: z.array(watchlistPnlSchema).catch([]),
+  watch_ledger: watchLedgerSchema,
   note: z.string().optional(),
   data_source: z.string().optional(),
   updated_at: z.string().optional(),
@@ -162,6 +237,10 @@ export type FundDailyPnl = z.infer<typeof dailyPnlSchema>;
 export type FundDetail = z.infer<typeof fundDetailSchema>;
 export type WatchlistFund = z.infer<typeof watchlistFundSchema>;
 export type WatchlistPnl = z.infer<typeof watchlistPnlSchema>;
+export type WatchTrade = z.infer<typeof watchTradeSchema>;
+export type WatchLedgerDaily = z.infer<typeof ledgerDailySchema>;
+export type WatchLedgerPerFund = z.infer<typeof ledgerPerFundSchema>;
+export type WatchLedger = z.infer<typeof watchLedgerSchema>;
 export type FundPortfolio = z.infer<typeof fundPortfolioSchema>;
 
 export function parseFundPortfolio(data: unknown): FundPortfolio | null {
