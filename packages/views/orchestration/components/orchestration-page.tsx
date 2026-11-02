@@ -20,12 +20,7 @@ export function OrchestrationPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <CollectionPageHeader
-        icon={Workflow}
-        title={t(($) => $.orchestration.title)}
-        count={graph.stats.total}
-        description={t(($) => $.orchestration.description)}
-      />
+      <CollectionPageHeader icon={Workflow} title={t(($) => $.orchestration.title)} />
       <OrchestrationToolbar
         stats={graph.stats}
         focusActive={focusActive}

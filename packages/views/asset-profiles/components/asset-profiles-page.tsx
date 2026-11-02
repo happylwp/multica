@@ -59,8 +59,6 @@ export function AssetProfilesPage() {
         <CollectionPageHeader
           icon={Archive}
           title={t(($) => $.page.title)}
-          count={profiles?.length}
-          description={t(($) => $.page.description)}
           actions={
             <Button size="sm" onClick={() => setCreating(true)}>
               <Plus />

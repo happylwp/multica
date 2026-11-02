@@ -87,9 +87,6 @@ describe("AssetProfilesPage", () => {
     expect(await screen.findByText("Portfolio archive")).toBeTruthy();
     expect(screen.getByText("fund holdings")).toBeTruthy();
     expect(screen.getByText("Insurance records")).toBeTruthy();
-    // Summary rows never carry the document — nothing to assert on data, but
-    // the header count reflects the two profiles.
-    expect(screen.getByText("2")).toBeTruthy();
   });
 
   it("shows the empty state when the workspace has no profiles", async () => {

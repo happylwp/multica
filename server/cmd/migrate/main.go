@@ -190,6 +190,7 @@ var concurrentIndexCleanups = map[string]string{
 	"488_maintenance_job_active_index":                          "idx_maintenance_job_active",
 	"587_cloud_agent_connection_provider_index":                 "cloud_agent_connection_provider_index",
 	"590_member_delegation_day_unique_index":                    "member_delegation_day_user_date_uidx",
+	"598_issue_unread_unique_index":                             "issue_unread_workspace_user_issue_uidx",
 	"599_asset_profile_id_uidx":                                 "asset_profile_id_uidx",
 	"601_asset_profile_workspace_idx":                           "asset_profile_workspace_idx",
 	"602_asset_profile_workspace_name_uidx":                     "asset_profile_workspace_name_uidx",
