@@ -1,5 +1,5 @@
--- Idempotent re-run guard: deployments that applied this series under its
--- original 593-597 numbers already carry the constraint.
+-- Idempotent re-run guard: deployments that applied this series under an
+-- earlier number (593-597, 598-602, or 603-607) already carry the constraint.
 DO $$
 BEGIN
     IF NOT EXISTS (
