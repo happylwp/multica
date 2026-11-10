@@ -9,7 +9,17 @@ describe("resolveRailOrder", () => {
 
   it("keeps a saved order", () => {
     const saved = ["chat", "inbox", "work", "team", "autopilots"];
-    expect(resolveRailOrder(saved)).toEqual(saved);
+    // fork rail spaces (orchestration, assets) missing from the saved order
+    // are placed after their default neighbour, like any newer space.
+    expect(resolveRailOrder(saved)).toEqual([
+      "chat",
+      "inbox",
+      "work",
+      "orchestration",
+      "assets",
+      "team",
+      "autopilots",
+    ]);
   });
 
   it("drops unknown and repeated ids", () => {
@@ -17,6 +27,8 @@ describe("resolveRailOrder", () => {
       "chat",
       "inbox",
       "work",
+      "orchestration",
+      "assets",
       "team",
       "autopilots",
     ]);
@@ -28,12 +40,16 @@ describe("resolveRailOrder", () => {
       "inbox",
       "autopilots",
       "work",
+      "orchestration",
+      "assets",
       "team",
     ]);
     expect(resolveRailOrder(["chat", "work", "team", "autopilots"])).toEqual([
       "inbox",
       "chat",
       "work",
+      "orchestration",
+      "assets",
       "team",
       "autopilots",
     ]);
@@ -46,9 +62,16 @@ describe("useRailOrderStore", () => {
   });
 
   it("saves a custom order", () => {
-    const order = ["chat", "inbox", "work", "team", "autopilots"] as const;
-    useRailOrderStore.getState().setOrder(order);
-    expect(useRailOrderStore.getState().order).toEqual(order);
+    useRailOrderStore.getState().setOrder(["chat", "inbox", "work", "team", "autopilots"]);
+    expect(useRailOrderStore.getState().order).toEqual([
+      "chat",
+      "inbox",
+      "work",
+      "orchestration",
+      "assets",
+      "team",
+      "autopilots",
+    ]);
   });
 
   it("forgets the order once it is back to the default", () => {
