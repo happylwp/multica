@@ -154,6 +154,7 @@ import ruUsage from "./ru/usage.json";
 import ruUi from "./ru/ui.json";
 import ruSquads from "./ru/squads.json";
 import ruBilling from "./ru/billing.json";
+import ruAssets from "./ru/assets.json";
 import frCommon from "./fr/common.json";
 import frAuth from "./fr/auth.json";
 import frSettings from "./fr/settings.json";
@@ -205,6 +206,7 @@ import esUsage from "./es/usage.json";
 import esUi from "./es/ui.json";
 import esSquads from "./es/squads.json";
 import esBilling from "./es/billing.json";
+import esAssets from "./es/assets.json";
 
 // Single source of truth for the resource bundle. Both apps (web layout +
 // desktop App.tsx) import from here so adding a locale or namespace happens
@@ -376,6 +378,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     ui: ruUi,
     squads: ruSquads,
     billing: ruBilling,
+    assets: ruAssets,
   },
   fr: {
     common: frCommon,
@@ -431,5 +434,6 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     ui: esUi,
     squads: esSquads,
     billing: esBilling,
+    assets: esAssets,
   },
 };

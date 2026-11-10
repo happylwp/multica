@@ -12,7 +12,9 @@
     "runtimes": "Среды выполнения",
     "skills": "Навыки",
     "settings": "Настройки",
-    "views": "Представления"
+    "views": "Представления",
+    "assets": "Assets",
+    "orchestration": "Orchestration"
   },
   "tab": {
     "issue": "Задача",
@@ -84,7 +86,9 @@
     "in_other_window": "Другое окно",
     "all_workspaces_open": "Все рабочие пространства уже открыты в окнах",
     "pin_workspace": "Закрепить рабочее пространство",
-    "unpin_workspace": "Открепить рабочее пространство"
+    "unpin_workspace": "Открепить рабочее пространство",
+    "orchestration": "Flows",
+    "assets": "Assets"
   },
   "panels": {
     "work": {
@@ -241,5 +245,29 @@
     "star_label": "Поставить звезду Multica на GitHub",
     "later": "Не сейчас",
     "close": "Закрыть"
+  },
+  "orchestration": {
+    "title": "Orchestration",
+    "description": "Swimlanes are parent chains; columns are stages; tags split waiting from blocked.",
+    "focus_active": "Focus active chains",
+    "filter_waiting": "waiting",
+    "filter_blocked_waiting": "blocked · waiting",
+    "filter_blocked": "blocked",
+    "filter_pending": "Needs decision",
+    "filter_in_progress": "in progress",
+    "filter_in_review": "in review",
+    "filter_done": "done",
+    "stats": "waiting {{waiting}} · blocked {{blocked}} · needs decision {{pending}}",
+    "loading": "Loading the workspace graph…",
+    "load_error": "Could not load issues for the graph.",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "canvas_label": "Task orchestration graph",
+    "phase_ph0": "Entry",
+    "phase_ph1": "Implement",
+    "phase_ph2": "Review",
+    "phase_ph3": "Test",
+    "phase_ph4": "Release",
+    "phase_ph5": "Accept"
   }
 }

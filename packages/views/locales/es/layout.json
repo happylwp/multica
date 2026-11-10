@@ -12,7 +12,9 @@
     "runtimes": "Runtimes",
     "skills": "Skills",
     "settings": "Ajustes",
-    "views": "Vistas"
+    "views": "Vistas",
+    "assets": "Assets",
+    "orchestration": "Orchestration"
   },
   "tab": {
     "issue": "Tarea",
@@ -108,7 +110,9 @@
     "open_in_new_window_click": "Clic",
     "open_in_other_window": "Ya está abierto en otra ventana",
     "in_other_window": "Otra ventana",
-    "all_workspaces_open": "Todos los espacios de trabajo ya están abiertos en una ventana"
+    "all_workspaces_open": "Todos los espacios de trabajo ya están abiertos en una ventana",
+    "orchestration": "Flows",
+    "assets": "Assets"
   },
   "panels": {
     "work": {
@@ -225,5 +229,29 @@
     "go_to_slide": "Ir a la diapositiva {{index}}",
     "previous": "Anterior",
     "next": "Siguiente"
+  },
+  "orchestration": {
+    "title": "Orchestration",
+    "description": "Swimlanes are parent chains; columns are stages; tags split waiting from blocked.",
+    "focus_active": "Focus active chains",
+    "filter_waiting": "waiting",
+    "filter_blocked_waiting": "blocked · waiting",
+    "filter_blocked": "blocked",
+    "filter_pending": "Needs decision",
+    "filter_in_progress": "in progress",
+    "filter_in_review": "in review",
+    "filter_done": "done",
+    "stats": "waiting {{waiting}} · blocked {{blocked}} · needs decision {{pending}}",
+    "loading": "Loading the workspace graph…",
+    "load_error": "Could not load issues for the graph.",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "canvas_label": "Task orchestration graph",
+    "phase_ph0": "Entry",
+    "phase_ph1": "Implement",
+    "phase_ph2": "Review",
+    "phase_ph3": "Test",
+    "phase_ph4": "Release",
+    "phase_ph5": "Accept"
   }
 }

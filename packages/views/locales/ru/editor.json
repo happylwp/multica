@@ -190,5 +190,21 @@
     "clear_filter": "Сбросить фильтр",
     "no_matches": "Подходящих строк нет",
     "close": "Закрыть"
+  },
+  "code_diff": {
+    "view_changes": "View code changes",
+    "title": "Code changes",
+    "files": "{{count}} files",
+    "file_list": "Changed files",
+    "binary": "Binary file",
+    "renamed": "Renamed",
+    "empty": "This diff has no file changes.",
+    "parse_failed": "Couldn't parse this diff. Download the file instead.",
+    "unified": "Unified",
+    "split": "Split",
+    "collapse_file": "Collapse file",
+    "expand_file": "Expand file",
+    "expand_context": "Show {{count}} unchanged lines",
+    "render_failed": "Couldn't render this file."
   }
 }
