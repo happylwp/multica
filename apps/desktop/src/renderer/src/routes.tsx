@@ -24,10 +24,7 @@ import { AssetProfilesPage } from "@multica/views/asset-profiles";
 import { AssetProfileDetailPage } from "./pages/asset-profile-detail-page";
 import { DesktopRuntimesPage } from "./components/desktop-runtimes-page";
 import { DesktopAgentsPage } from "./components/desktop-agents-page";
-import {
-  AiCreateAgentPage,
-  ManualCreateAgentPage,
-} from "@multica/views/agents";
+import { ManualCreateAgentPage } from "@multica/views/agents";
 import { DesktopChooseRuntimePage } from "./components/desktop-choose-runtime-page";
 import { AgentCreatedPage } from "./pages/agent-created-page";
 import { SquadsPage, SquadDetailPage as SquadDetailPageView } from "@multica/views/squads/components";
@@ -241,11 +238,6 @@ export const appRoutes: RouteObject[] = [
           {
             path: "agents/new/manual",
             element: <ManualCreateAgentPage />,
-            handle: { title: "Create Agent" },
-          },
-          {
-            path: "agents/new/ai",
-            element: <AiCreateAgentPage />,
             handle: { title: "Create Agent" },
           },
           {

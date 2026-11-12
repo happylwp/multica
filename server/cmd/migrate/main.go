@@ -140,6 +140,11 @@ var pgBigmOperatorClass = extensionOperatorClass{
 // they are still pending: a fresh self-hosted install, which is exactly where an
 // interrupted build would otherwise leave a permanently unusable index.
 var concurrentIndexCleanups = map[string]string{
+	"651_task_context_receipt_issue_idx":                        "idx_task_context_receipt_issue",
+	"650_task_context_receipt_workspace_idx":                    "idx_task_context_receipt_workspace",
+	"648_project_subscriber_user_idx":                           "idx_project_subscriber_workspace_user",
+	"645_issue_member_creator_index":                            "idx_issue_workspace_member_creator",
+	"644_issue_requester_index":                                 "idx_issue_workspace_requester",
 	"642_issue_environment_config_issue_idx":                    "idx_issue_environment_config_issue",
 	"641_issue_environment_command_logs_idx":                    "idx_issue_environment_command_logs",
 	"640_issue_environment_command_issue_idx":                   "idx_issue_environment_command_issue",
@@ -215,9 +220,9 @@ var concurrentIndexCleanups = map[string]string{
 	"587_cloud_agent_connection_provider_index":                 "cloud_agent_connection_provider_index",
 	"590_member_delegation_day_unique_index":                    "member_delegation_day_user_date_uidx",
 	"598_issue_unread_unique_index":                             "issue_unread_workspace_user_issue_uidx",
-	"609_asset_profile_id_uidx":                                 "asset_profile_id_uidx",
-	"611_asset_profile_workspace_idx":                           "asset_profile_workspace_idx",
-	"612_asset_profile_workspace_name_uidx":                     "asset_profile_workspace_name_uidx",
+	"653_asset_profile_id_uidx":                                 "asset_profile_id_uidx",
+	"655_asset_profile_workspace_idx":                           "asset_profile_workspace_idx",
+	"656_asset_profile_workspace_name_uidx":                     "asset_profile_workspace_name_uidx",
 	"035_task_queue_issue_id_index":                             "idx_agent_task_queue_issue_id",
 	"067_task_queue_claim_candidate_index":                      "idx_agent_task_queue_claim_candidates",
 	"074_task_usage_updated_at_index":                           "idx_task_usage_updated_at",

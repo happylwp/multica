@@ -378,7 +378,7 @@ function QuotaAndWindow({
   );
 }
 
-function BindQrCard({
+export function BindQrCard({
   qr,
   onBound,
   onRefresh,
