@@ -30,12 +30,43 @@ const ScopeKindAutopilotTrigger = "autopilot_trigger"
 // service.DefaultAutopilotTriggerTimezone.
 const DefaultAutopilotScheduleTimezone = "UTC"
 
-// maxAutopilotScheduleLateness is the acceptance window for dispatching a
-// cron occurrence after its configured plan_time. Normal scheduler jitter is
-// tens of seconds; anything beyond this is a stale catch-up and should wait
-// for the next configured slot instead of firing at an arbitrary activation
-// time.
+// maxAutopilotScheduleLateness is the jitter margin for dispatching a
+// cron occurrence after its configured plan_time on a cold start — the
+// only acceptance window for triggers without scheduler history
+// (WS-1465: an occurrence already missed when the trigger became
+// schedulable must not fire). Normal scheduler jitter is tens of
+// seconds.
 const maxAutopilotScheduleLateness = 5 * time.Minute
+
+// maxAutopilotScheduleCatchUp is how far past its configured plan_time a
+// missed cron occurrence is still dispatched once the scheduler is
+// available again (host was down for the slot, backend redeployed, …).
+// Applies only to triggers with scheduler history, where a gap in the
+// plan record means the scheduler itself was unavailable. A self-hosted
+// single-node instance routinely gaps its slots by minutes to hours;
+// the old 5-minute acceptance window silently dropped those
+// occurrences, which for a monthly cron meant losing a whole cycle
+// whenever its slot fell on an offline morning. Occurrences older than
+// this window are not dispatched — the handler records a skip and
+// advances the display next_run_at instead.
+const maxAutopilotScheduleCatchUp = 24 * time.Hour
+
+// maxAutopilotScheduleDenseWindow is the enumeration window of the
+// planner's fast path. It must stay below NextOccurrencesUTC's 1024-entry
+// cap for the densest legal cron ("* * * * *": 720 occurrences in 12h),
+// so the most recent occurrence of even a minute-cron can never be
+// hidden by the cap after a long pause — the MUL-7973 invariant. It is
+// also the lateness the fast path can surface on its own; sparser
+// misses are resolved by the single-occurrence lookup below.
+const maxAutopilotScheduleDenseWindow = 12 * time.Hour
+
+// maxAutopilotScheduleLookback bounds how far back the planner considers
+// missed occurrences at all. Within the window the most recent occurrence
+// is surfaced to the handler, which dispatches it if it is inside the
+// catch-up window or records a skip that heals the display next_run_at.
+// Beyond it occurrences are ignored entirely, so a trigger re-enabled
+// after a very long pause does not fire an arbitrary long-stale slot.
+const maxAutopilotScheduleLookback = 7 * 24 * time.Hour
 
 // AutopilotScheduleDispatcher is the narrow contract this job needs
 // from service.AutopilotService. Defined here so unit tests in this
@@ -98,6 +129,10 @@ func AutopilotScheduleDispatchJob(
 		Cadence:           0, // hook-driven; cron expressions are arbitrary
 		ScheduleDelay:     0,
 		CatchUpMode:       CatchUpLatestOnly, // ignored when hook is set, but documents intent
+		// Mirrors maxAutopilotScheduleCatchUp, which the hook applies
+		// itself: missed occurrences inside the window are dispatched
+		// once the scheduler is back, older ones are skipped with the
+		// display next_run_at advanced.
 		CatchUpWindow:     24 * time.Hour,
 		RunTimeout:        2 * time.Minute,
 		StaleTimeout:      5 * time.Minute,
@@ -218,11 +253,12 @@ func autopilotScopes(
 }
 
 // autopilotPlansForScope returns the PlansForScope hook that computes
-// the cron occurrences in (lastPlan, dbNow] that are still inside the
-// dispatch-lateness window, and keeps only the most recent one.
-// The latest-only collapse prevents a long outage from replaying every
-// missed slot; the lateness guard prevents a paused / newly eligible
-// trigger from firing hours after its configured time.
+// the cron occurrences in (lastPlan, dbNow] bounded by the lookback
+// window, and keeps only the most recent one. The latest-only collapse
+// prevents a long outage from replaying every missed slot; the surfaced
+// occurrence is handed to the handler whatever its lateness, where the
+// catch-up window decides between dispatching it and recording a skip
+// (see maxAutopilotScheduleCatchUp).
 //
 // Retry-eligible state is handled specially: when the most recent
 // stored plan_time is a FAILED row with attempts remaining and
@@ -279,7 +315,8 @@ func autopilotPlansForScope(cache *autopilotScheduleCache) func(
 		//      created_at so only occurrences after the trigger
 		//      existed are enumerated.
 		//
-		// Each case feeds into a final floor at the lateness window.
+		// Case 1 continues into the catch-up paths below; cases 2 and 3
+		// are cold starts and stop at the jitter-margin branch.
 		var after time.Time
 		switch {
 		case latest.Found:
@@ -289,31 +326,75 @@ func autopilotPlansForScope(cache *autopilotScheduleCache) func(
 		default:
 			after = cfg.CreatedAt
 		}
-		// Enumerate only dispatchable history so the 1024-entry cap cannot
-		// hide recent occurrences after a long pause. Subtract 1ns because
-		// enumeration excludes `after`, but the lateness bound is inclusive.
-		if floor := now.Add(-maxAutopilotScheduleLateness); after.Before(floor) {
+
+		// Cold start — no sys_cron_executions row from this scheduler.
+		// Keep the WS-1465 policy verbatim: an occurrence that was
+		// already missed when the trigger became schedulable (autopilot
+		// re-enabled after a pause, first deploy of this scheduler) is
+		// not fired; only occurrences inside the jitter margin go
+		// through. The catch-up / skip-and-advance policy below applies
+		// exclusively to triggers this scheduler has dispatched before,
+		// where a gap in the plan history means the scheduler itself was
+		// unavailable (host down, backend redeployed) — a state the
+		// operator expects to be recovered, unlike a pause.
+		if !latest.Found {
+			if floor := now.Add(-maxAutopilotScheduleLateness); after.Before(floor) {
+				after = floor.Add(-time.Nanosecond)
+			}
+			occs, err := service.NextOccurrencesUTC(cfg.CronExpression, cfg.Timezone, after, now)
+			if err != nil {
+				return nil, fmt.Errorf("autopilot plans: cron eval for trigger %s: %w", scope.ID, err)
+			}
+			if len(occs) == 0 {
+				return nil, nil
+			}
+			return []time.Time{occs[len(occs)-1]}, nil
+		}
+		// Fast path — enumerate the dense window capped at
+		// maxAutopilotScheduleDenseWindow ago. The window is cap-safe for
+		// any legal cron (see the constant), so the latest occurrence it
+		// returns is real even after a long pause. Subtract 1ns because
+		// enumeration excludes `after`, but the floor bound is inclusive.
+		anchor := after
+		if floor := now.Add(-maxAutopilotScheduleDenseWindow); after.Before(floor) {
 			after = floor.Add(-time.Nanosecond)
 		}
-
 		occs, err := service.NextOccurrencesUTC(cfg.CronExpression, cfg.Timezone, after, now)
 		if err != nil {
 			return nil, fmt.Errorf("autopilot plans: cron eval for trigger %s: %w", scope.ID, err)
 		}
-		if len(occs) == 0 {
-			return nil, nil
+		if len(occs) > 0 {
+			// CatchUpLatestOnly: collapse missed fires to the most recent.
+			return []time.Time{occs[len(occs)-1]}, nil
 		}
-		// CatchUpLatestOnly: collapse missed fires to the most recent.
-		latestDue := occs[len(occs)-1]
-		if isAutopilotSchedulePlanStale(now, latestDue) {
-			return nil, nil
-		}
-		return []time.Time{latestDue}, nil
-	}
-}
 
-func isAutopilotSchedulePlanStale(now, planTime time.Time) bool {
-	return now.Sub(planTime) > maxAutopilotScheduleLateness
+		// Sparse path — nothing is due inside the dense window, so any
+		// due occurrence older than that is also the FIRST occurrence
+		// after the anchor (no newer one exists, or the fast path would
+		// have seen it). A single-occurrence lookup has no enumeration
+		// cap. The anchor is floored at the lookback window — NOT at the
+		// dense window — so a monthly cron whose slot was missed days ago
+		// still surfaces that occurrence for the handler to skip-and-
+		// advance; beyond the lookback it is ignored entirely.
+		sparseAfter := anchor
+		if floor := now.Add(-maxAutopilotScheduleLookback); sparseAfter.Before(floor) {
+			sparseAfter = floor
+		}
+		occ, err := service.NextOccurrenceAfterUTC(cfg.CronExpression, cfg.Timezone, sparseAfter)
+		if err != nil {
+			return nil, fmt.Errorf("autopilot plans: cron eval for trigger %s: %w", scope.ID, err)
+		}
+		if occ.After(now) {
+			return nil, nil
+		}
+		// Surface the missed occurrence regardless of lateness — the
+		// handler decides whether it is still inside the catch-up window
+		// (dispatch) or is recorded as a skip that advances the display
+		// next_run_at. Dropping it here (the old policy) left next_run_at
+		// pinned to a past slot for the whole next cycle whenever an
+		// occurrence was missed by more than the jitter margin.
+		return []time.Time{occ}, nil
+	}
 }
 
 // autopilotHandler dispatches one (trigger, planTime) attempt and
@@ -366,6 +447,22 @@ func autopilotHandler(
 			}}, nil
 		}
 
+		// A surfaced occurrence beyond the catch-up window (host offline
+		// for days, trigger re-enabled after a long pause) is not
+		// dispatched: firing that long after its configured time is worse
+		// than skipping. Record the skip so sys_cron_executions anchors
+		// past this occurrence (no re-enumeration next tick) and advance
+		// the display next_run_at — otherwise it stays pinned to the
+		// missed slot for the whole next cycle, which reads as a dead
+		// trigger in the UI.
+		if time.Now().Sub(in.PlanTime) > maxAutopilotScheduleCatchUp {
+			advanceTriggerDisplay(ctx, queries, trigger, in.PlanTime)
+			return HandlerResult{RowsAffected: 0, Result: map[string]any{
+				"skipped_reason": "catchup_window_expired",
+				"plan_time":      in.PlanTime.UTC().Format(time.RFC3339),
+			}}, nil
+		}
+
 		run, err := dispatcher.DispatchAutopilotForPlan(
 			ctx, autopilot, trigger.ID, "schedule", nil, in.PlanTime,
 		)
@@ -373,29 +470,7 @@ func autopilotHandler(
 			return HandlerResult{}, fmt.Errorf("dispatch for plan: %w", err)
 		}
 
-		// Advance the display-only next_run_at to the upcoming slot and
-		// bump last_fired_at in the same write, so the trigger UI stops
-		// showing a "next run" that has already fired (MUL-3749). The
-		// value stays on the app local clock — consistent with the trigger
-		// create/update display path — but is floored at the plan_time
-		// that just fired (see advancedNextRun), so a lagging app clock can
-		// never recompute the slot we just dispatched. Errors are not
-		// fatal: the canonical record is autopilot_run.created_at and the
-		// next dispatch refreshes the value regardless; on a cron/timezone
-		// parse failure we fall back to the last_fired_at-only bump so the
-		// fire is still recorded.
-		tz := DefaultAutopilotScheduleTimezone
-		if trigger.Timezone.Valid && trigger.Timezone.String != "" {
-			tz = trigger.Timezone.String
-		}
-		if next, ok := advancedNextRun(trigger.CronExpression.String, tz, in.PlanTime, time.Now()); ok {
-			_ = queries.AdvanceTriggerNextRun(ctx, db.AdvanceTriggerNextRunParams{
-				ID:        trigger.ID,
-				NextRunAt: pgtype.Timestamptz{Time: next, Valid: true},
-			})
-		} else {
-			_ = queries.TouchAutopilotTriggerFiredAt(ctx, trigger.ID)
-		}
+		advanceTriggerDisplay(ctx, queries, trigger, in.PlanTime)
 
 		return HandlerResult{
 			RowsAffected: 1,
@@ -405,6 +480,37 @@ func autopilotHandler(
 			},
 		}, nil
 	}
+}
+
+// advanceTriggerDisplay refreshes the display-only next_run_at /
+// last_fired_at pair after the given occurrence has been processed —
+// dispatched or skipped — so the trigger UI stops showing a "next run"
+// that has already fired (MUL-3749). The value stays on the app local
+// clock — consistent with the trigger create/update display path — but is
+// floored at the plan_time that just fired (see advancedNextRun), so a
+// lagging app clock can never recompute the slot we just dispatched.
+// Errors are not fatal: the canonical record is autopilot_run.created_at
+// and the next dispatch refreshes the value regardless; on a
+// cron/timezone parse failure we fall back to the last_fired_at-only
+// bump so the fire is still recorded.
+func advanceTriggerDisplay(
+	ctx context.Context,
+	queries *db.Queries,
+	trigger db.AutopilotTrigger,
+	planTime time.Time,
+) {
+	tz := DefaultAutopilotScheduleTimezone
+	if trigger.Timezone.Valid && trigger.Timezone.String != "" {
+		tz = trigger.Timezone.String
+	}
+	if next, ok := advancedNextRun(trigger.CronExpression.String, tz, planTime, time.Now()); ok {
+		_ = queries.AdvanceTriggerNextRun(ctx, db.AdvanceTriggerNextRunParams{
+			ID:        trigger.ID,
+			NextRunAt: pgtype.Timestamptz{Time: next, Valid: true},
+		})
+		return
+	}
+	_ = queries.TouchAutopilotTriggerFiredAt(ctx, trigger.ID)
 }
 
 // advancedNextRun computes the display-only next_run_at value to write
