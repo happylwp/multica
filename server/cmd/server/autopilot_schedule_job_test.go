@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -816,5 +817,138 @@ func TestAutopilotScheduleJobColdStartSkipsStaleMissedOccurrence(t *testing.T) {
 	}
 	if len(plans) != 0 {
 		t.Fatalf("stale cold-start occurrence must be skipped; got plans %v", plans)
+	}
+}
+
+// seedPlanHistory writes a SUCCESS sys_cron_executions row so the
+// planner sees real scheduler dispatch history (LatestPlanInfo.Found)
+// for the trigger — the precondition for the catch-up policy, as opposed
+// to the WS-1465 cold-start policy.
+func seedPlanHistory(t *testing.T, triggerID pgtype.UUID, planTime time.Time) {
+	t.Helper()
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(),
+			`DELETE FROM sys_cron_executions WHERE scope_kind = $1 AND scope_id = $2`,
+			scheduler.ScopeKindAutopilotTrigger, util.UUIDToString(triggerID))
+	})
+	if _, err := testPool.Exec(context.Background(), `
+		INSERT INTO sys_cron_executions (job_name, scope_kind, scope_id, plan_time, status, attempt, max_attempts)
+		VALUES ($1, $2, $3, $4, 'SUCCESS', 1, 3)`,
+		scheduler.JobNameAutopilotScheduleDispatch, scheduler.ScopeKindAutopilotTrigger,
+		util.UUIDToString(triggerID), planTime); err != nil {
+		t.Fatalf("seed plan history: %v", err)
+	}
+}
+
+// catchUpTestManager builds a Manager with only the autopilot dispatch
+// job registered, for catch-up integration tests.
+func catchUpTestManager(t *testing.T, queries *db.Queries, autopilotSvc *service.AutopilotService) *scheduler.Manager {
+	t.Helper()
+	mgr := scheduler.NewManager(testPool, scheduler.Options{RunnerID: "catchup-test"})
+	if err := mgr.Register(scheduler.AutopilotScheduleDispatchJob(testPool, queries, autopilotSvc)); err != nil {
+		t.Fatalf("register autopilot_schedule_dispatch job: %v", err)
+	}
+	return mgr
+}
+
+// TestAutopilotScheduleJobCatchesUpMissedOccurrence pins the offline-gap
+// recovery contract: a trigger with scheduler history whose most recent
+// occurrence was missed by minutes-to-hours (host down for the slot) is
+// dispatched on the first tick after the scheduler comes back, and the
+// display next_run_at moves to the upcoming slot. The old 5-minute
+// lateness guard silently dropped the occurrence — for a daily cron that
+// meant a lost slot whenever the machine booted late, and for a monthly
+// cron a lost cycle.
+func TestAutopilotScheduleJobCatchesUpMissedOccurrence(t *testing.T) {
+	ctx := context.Background()
+	// A daily cron pinned 40 minutes in the past: its most recent
+	// occurrence is exactly 40 minutes old whatever the wall clock.
+	missed := time.Now().UTC().Truncate(time.Minute).Add(-40 * time.Minute)
+	cron := fmt.Sprintf("%d %d * * *", missed.Minute(), missed.Hour())
+	trigger, queries, autopilotSvc := seedColdStartTrigger(t, cron)
+	seedPlanHistory(t, trigger.ID, missed.Add(-24*time.Hour))
+
+	if err := catchUpTestManager(t, queries, autopilotSvc).RunOnce(ctx); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	var runs int
+	if err := testPool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM autopilot_run WHERE trigger_id = $1`, trigger.ID).Scan(&runs); err != nil {
+		t.Fatalf("count run rows: %v", err)
+	}
+	if runs != 1 {
+		t.Fatalf("missed occurrence inside the catch-up window must dispatch once, got %d runs", runs)
+	}
+	var plannedAt time.Time
+	if err := testPool.QueryRow(ctx,
+		`SELECT planned_at FROM autopilot_run WHERE trigger_id = $1`, trigger.ID).Scan(&plannedAt); err != nil {
+		t.Fatalf("load planned_at: %v", err)
+	}
+	if !plannedAt.UTC().Equal(missed) {
+		t.Fatalf("dispatched planned_at = %s, want the missed occurrence %s",
+			plannedAt.UTC().Format(time.RFC3339), missed.Format(time.RFC3339))
+	}
+
+	var nextRun time.Time
+	if err := testPool.QueryRow(ctx,
+		`SELECT next_run_at FROM autopilot_trigger WHERE id = $1`, trigger.ID).Scan(&nextRun); err != nil {
+		t.Fatalf("load next_run_at: %v", err)
+	}
+	if want := missed.Add(24 * time.Hour); !nextRun.UTC().Equal(want) {
+		t.Fatalf("next_run_at = %s, want the upcoming slot %s",
+			nextRun.UTC().Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+}
+
+// TestAutopilotScheduleJobSkipsStaleMissedOccurrenceAndHealsDisplay pins
+// the far side of the catch-up policy: an occurrence missed by more than
+// the catch-up window (host offline for days) is NOT dispatched, but the
+// skip is recorded in sys_cron_executions — anchoring the planner past
+// it — and the display next_run_at advances to the upcoming slot instead
+// of staying pinned to the missed one.
+func TestAutopilotScheduleJobSkipsStaleMissedOccurrenceAndHealsDisplay(t *testing.T) {
+	ctx := context.Background()
+	// A weekly cron pinned to 72 hours ago: the missed occurrence is
+	// beyond the 24h catch-up window but inside the lookback window,
+	// whatever the wall clock.
+	missed := time.Now().UTC().Truncate(time.Minute).Add(-72 * time.Hour)
+	cron := fmt.Sprintf("%d %d * * %d", missed.Minute(), missed.Hour(), int(missed.Weekday()))
+	trigger, queries, autopilotSvc := seedColdStartTrigger(t, cron)
+	seedPlanHistory(t, trigger.ID, missed.Add(-7*24*time.Hour))
+
+	if err := catchUpTestManager(t, queries, autopilotSvc).RunOnce(ctx); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	var runs int
+	if err := testPool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM autopilot_run WHERE trigger_id = $1`, trigger.ID).Scan(&runs); err != nil {
+		t.Fatalf("count run rows: %v", err)
+	}
+	if runs != 0 {
+		t.Fatalf("occurrence beyond the catch-up window must not dispatch, got %d runs", runs)
+	}
+
+	var skipRows int
+	if err := testPool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM sys_cron_executions
+		 WHERE job_name = $1 AND scope_kind = $2 AND scope_id = $3 AND plan_time = $4`,
+		scheduler.JobNameAutopilotScheduleDispatch, scheduler.ScopeKindAutopilotTrigger,
+		util.UUIDToString(trigger.ID), missed).Scan(&skipRows); err != nil {
+		t.Fatalf("count skip rows: %v", err)
+	}
+	if skipRows != 1 {
+		t.Fatalf("the skipped occurrence must be recorded exactly once, got %d rows", skipRows)
+	}
+
+	var nextRun time.Time
+	if err := testPool.QueryRow(ctx,
+		`SELECT next_run_at FROM autopilot_trigger WHERE id = $1`, trigger.ID).Scan(&nextRun); err != nil {
+		t.Fatalf("load next_run_at: %v", err)
+	}
+	if want := missed.Add(7 * 24 * time.Hour); !nextRun.UTC().Equal(want) {
+		t.Fatalf("next_run_at = %s, want the upcoming slot %s",
+			nextRun.UTC().Format(time.RFC3339), want.Format(time.RFC3339))
 	}
 }
