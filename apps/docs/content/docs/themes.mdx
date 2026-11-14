@@ -28,6 +28,8 @@ The rest of the page is independent of the theme:
 | **Content text** | Font, size, and line height for issue descriptions, comments, chat, and documents, plus the code font. |
 | **Layout and accessibility** | Row density in lists, Reduce motion, and Increase contrast. |
 
+Content text matches the interface size by default. Moving the content font-size slider sets a separate size; turn on **Match interface size** to follow the interface again. These sliders change text size, not spacing or layout.
+
 When you pick a font other than the default, or turn on Increase contrast, your choice wins over the theme's. A theme sets the colors; to change a color it doesn't offer as an option, pick another theme or [make your own](/developers/themes).
 
 ## The theme store
@@ -100,7 +102,6 @@ A self-hosted server lists the official registry, [multica-ai/multica-themes](ht
 
 | Variable | Effect |
 |---|---|
-| `MULTICA_THEME_STORE` | `off` turns the store off. **Manage** then lists only the themes installed on each device, and appears once one is installed; the server makes no registry requests. |
 | `MULTICA_THEME_REGISTRY_URL` | Points the store at another registry's `index.json`, for example a fork of the official one. |
 
 See [Environment variables](/environment-variables) for the rest of the server configuration.
