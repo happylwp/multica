@@ -172,7 +172,7 @@ export type {
   TimelineEntry,
   AssigneeFrequencyEntry,
 } from "./activity";
-export type { IssueSubscriber } from "./subscriber";
+export type { IssueSubscriber, IssueSubscriberDelivery } from "./subscriber";
 export type * from "./events";
 export type * from "./api";
 export type { Attachment } from "./attachment";
