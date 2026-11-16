@@ -6,12 +6,14 @@
 --
 -- No FK to workspace/"user" by design (repository DB rules); readers join
 -- current members and writers resolve membership in handlers. Indexes are
--- built concurrently in 658-661, following member_delegation_day (589-591),
+-- built concurrently in 901-904, following member_delegation_day (589-591),
 -- so no migration below builds an index inline.
 --
 -- Originally shipped as 593; renumbered after successive upstream syncs
--- claimed 593/594, then 598/599, then 603/604, then 608-612, then 652-656, so deployments that already
--- applied an earlier number replay this file — hence the idempotent guard.
+-- claimed 593/594, then 598/599, then 603/604, then 608-612, then 652-656,
+-- then 657-660, so deployments that already applied an earlier number replay
+-- this file — hence the idempotent guard. Now at 900, the start of the
+-- 900+ block reserved for fork-private migrations, to end the collisions.
 CREATE TABLE IF NOT EXISTS asset_profile (
     id UUID NOT NULL DEFAULT gen_random_uuid(),
     workspace_id UUID NOT NULL,
