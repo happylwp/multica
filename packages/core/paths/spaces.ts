@@ -7,7 +7,6 @@
  */
 
 export type AppSpaceId =
-  | "inbox"
   | "work"
   | "orchestration"
   | "assets"
@@ -21,7 +20,6 @@ export type RailSpaceId = Exclude<AppSpaceId, "settings">;
 
 /** Spaces in rail order. */
 export const RAIL_SPACES: readonly RailSpaceId[] = [
-  "inbox",
   "work",
   "orchestration",
   "assets",
@@ -31,7 +29,8 @@ export const RAIL_SPACES: readonly RailSpaceId[] = [
 ];
 
 const SPACE_BY_SEGMENT: Record<string, AppSpaceId> = {
-  inbox: "inbox",
+  // The full notification list; its sidebar section heads the Work panel.
+  inbox: "work",
   "my-issues": "work",
   issues: "work",
   projects: "work",
