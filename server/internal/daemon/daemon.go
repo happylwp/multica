@@ -3137,7 +3137,7 @@ func (d *Daemon) registerBuiltinRuntimesForWorkspaceLocked(ctx context.Context, 
 // a transient 5xx would silently flip the daemon into thinking the workspace
 // has zero profiles).
 func (d *Daemon) appendProfileRuntimes(ctx context.Context, workspaceID string, runtimes *[]map[string]string, failedProfiles *[]map[string]string) string {
-	resp, err := d.client.GetRuntimeProfiles(ctx, workspaceID)
+	resp, err := d.client.GetRuntimeProfiles(ctx, workspaceID, d.cfg.DaemonID)
 	if err != nil {
 		// Best-effort: never fail registration because profiles couldn't be
 		// fetched. An older server with no profiles route returns 404.
@@ -3922,7 +3922,7 @@ func (d *Daemon) refreshWorkspaceRuntimeProfiles(ctx context.Context, workspaceI
 	refreshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	resp, err := d.client.GetRuntimeProfiles(refreshCtx, workspaceID)
+	resp, err := d.client.GetRuntimeProfiles(refreshCtx, workspaceID, d.cfg.DaemonID)
 	if err != nil {
 		// Older server (no profiles route) returns 404; let the on-demand caller
 		// log the failure at debug level.
@@ -6914,6 +6914,14 @@ func providerDisplayName(name string) string {
 // hermes 0.18.2 over ACP (AGENTS.md). MCode 0.1.2 also loads AGENTS.md by its
 // native runtime contract. kiro was confirmed earlier by a kiro-cli
 // 2.13.0 ACP smoke — see the call site. Still unprobed: grok, qoder, codebuddy.
+//
+// Pi 1.5.2 evidence (GitHub #10713): the author reports an in-band run following
+// AGENTS.md-only instructions, notably the MULTICA_CLI_PATH contract; no run
+// transcript is attached. Separately, upstream v1.5.2 documents context-file
+// discovery from the working directory without project trust:
+// https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/configuration.md
+// That is the loader contract, not a canary result. No fresh MUL-5392 canary
+// was run for 1.5.2.
 func providerNeedsInlineSystemPrompt(provider string) bool {
 	switch provider {
 	case "openclaw", "kimi", "traecli", "qwenpaw":
@@ -9032,7 +9040,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			promptOptions = append(promptOptions, WithWorktreeCommitsAllLeftovers())
 		}
 	}
-	prompt := BuildPrompt(task, provider, promptOptions...)
+	prompt, skillInvocation := buildRuntimePrompt(task, provider, env.SkillDirectories, promptOptions...)
 
 	// Pass task-scoped auth credentials and context so the spawned agent CLI
 	// can call the Multica API and the local daemon (e.g. `multica repo checkout`).
@@ -9205,7 +9213,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			runtimeBrief = freshBrief
 			runtimeBriefWritten = true
 		}
-		prompt = BuildPrompt(task, provider, promptOptions...)
+		prompt, skillInvocation = buildRuntimePrompt(task, provider, env.SkillDirectories, promptOptions...)
 	}
 	backend, err := agent.ResolveBackend(provider, backendConfig)
 	if err != nil {
@@ -9278,6 +9286,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		idleWatchdogTimeout = d.cfg.OpenCodeIdleWatchdog
 	}
 	execOpts := agent.ExecOptions{
+		SkillInvocation:            skillInvocation,
 		EnableTaskSupplement:       taskSupplementNegotiated,
 		CursorHookCommand:          cursorHookCommand,
 		Cwd:                        env.WorkDir,
@@ -9487,7 +9496,8 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 				execOpts.SystemPrompt = runtimeBrief
 			}
 		}
-		freshPrompt := BuildPrompt(task, provider, promptOptions...)
+		freshPrompt, freshSkills := buildRuntimePrompt(task, provider, env.SkillDirectories, promptOptions...)
+		execOpts.SkillInvocation = freshSkills
 
 		receiptInput.Prompt = freshPrompt
 		receiptInput.RuntimeBrief = freshBrief
@@ -11132,6 +11142,7 @@ func convertSkillsForEnv(skills []SkillData) []execenv.SkillContextForEnv {
 	result := make([]execenv.SkillContextForEnv, len(skills))
 	for i, s := range skills {
 		result[i] = execenv.SkillContextForEnv{
+			ID:          s.ID,
 			Name:        s.Name,
 			Description: s.Description,
 			Content:     s.Content,
