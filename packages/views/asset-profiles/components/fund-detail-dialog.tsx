@@ -124,7 +124,7 @@ export function FundDetailDialog({
       >
         {trigger}
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[85%] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="pr-6">{detail?.name ?? fund.name}</DialogTitle>
           <DialogDescription className="flex flex-wrap items-center gap-1.5">

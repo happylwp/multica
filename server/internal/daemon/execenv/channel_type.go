@@ -19,6 +19,7 @@ const (
 	ChannelTypeDingtalk = "dingtalk"
 	ChannelTypeWechat   = "wechat"
 	ChannelTypeTelegram = "telegram"
+	ChannelTypeWeixin   = "weixin"
 )
 
 // SurfacePersistsTranscript reports whether a chat surface stores its
@@ -31,7 +32,7 @@ const (
 // so a future non-persisting channel is never told "read it back".
 func SurfacePersistsTranscript(channelType string) bool {
 	switch channelType {
-	case "", ChannelTypeFeishu, ChannelTypeWecom, ChannelTypeDingtalk, ChannelTypeWechat:
+	case "", ChannelTypeFeishu, ChannelTypeWecom, ChannelTypeDingtalk, ChannelTypeWechat, ChannelTypeWeixin:
 		return true
 	default:
 		return false
@@ -131,6 +132,8 @@ func ChannelDisplayName(channelType string) string {
 	case ChannelTypeDingtalk:
 		return "DingTalk"
 	case ChannelTypeWechat:
+		return "微信（个人号）"
+	case ChannelTypeWeixin:
 		return "微信"
 	case ChannelTypeTelegram:
 		return "Telegram"

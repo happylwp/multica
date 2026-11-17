@@ -71,7 +71,7 @@ export function CodeDiffModal({
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogContent
         showCloseButton={false}
-        className="flex h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] w-full max-w-[min(96rem,calc(100%-2rem))] sm:max-w-[min(96rem,calc(100%-2rem))] flex-col gap-0 overflow-hidden p-0"
+        className="flex h-[calc(100%-2rem)] max-h-[calc(100%-2rem)] w-full max-w-[min(96rem,calc(100%-2rem))] sm:max-w-[min(96rem,calc(100%-2rem))] flex-col gap-0 overflow-hidden p-0"
       >
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2">
           <div className="min-w-0">

@@ -3915,6 +3915,33 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 			}
 		}
 		resp.ChatMessage = strings.Join(parts, "\n\n")
+		if task.RetryOfTaskID.Valid && resp.PriorSessionID != "" {
+			// Keep the full input for cold starts and the daemon's local fresh
+			// retry. Only a positively identified provider session can omit
+			// guidance whose injection it already acknowledged.
+			rows, err := h.Queries.ListChatGuidanceInProviderSession(r.Context(), db.ListChatGuidanceInProviderSessionParams{
+				WorkspaceID: cs.WorkspaceID, MessageIds: messageIDs,
+				SessionID: pgtype.Text{String: resp.PriorSessionID, Valid: true}, RuntimeID: task.RuntimeID,
+			})
+			if err != nil {
+				return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount,
+					h.rejectClaimSourceLoad(r.Context(), task, err, "chat guidance receipts", uuidToString(task.ID))
+			}
+			if len(rows) > 0 {
+				delivered := make(map[pgtype.UUID]bool, len(rows))
+				for _, id := range rows {
+					delivered[id] = true
+				}
+				resumeParts := make([]string, 0, len(unanswered))
+				for _, m := range unanswered {
+					if !delivered[m.ID] && strings.TrimSpace(m.Content) != "" {
+						resumeParts = append(resumeParts, m.Content)
+					}
+				}
+				resume := strings.Join(resumeParts, "\n\n")
+				resp.ChatResumeMessage = &resume
+			}
+		}
 
 		// Fail closed: a task-owned direct task that resolves to no user text
 		// (and is not the agent's proactive intro) must never dispatch an
@@ -4821,7 +4848,7 @@ func (h *Handler) StartTask(w http.ResponseWriter, r *http.Request) {
 	// A daemon must use this response rather than its own offer: an old server
 	// ignores the offer and omits the field, which keeps daemon-first rollouts
 	// fail closed without requiring synchronized deployment.
-	if task.IssueID.Valid {
+	if task.IssueID.Valid || task.ChatSessionID.Valid {
 		if capability, capabilityErr := h.Queries.GetTaskSupplementCapability(r.Context(), task.ID); capabilityErr == nil {
 			resp.SupplementCapability = capability.Capability
 		} else if !errors.Is(capabilityErr, pgx.ErrNoRows) {

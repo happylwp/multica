@@ -8,6 +8,7 @@ import { slackInstallationsOptions } from "@multica/core/slack";
 import { dingtalkInstallationsOptions } from "@multica/core/dingtalk";
 import { wecomInstallationsOptions } from "@multica/core/wecom";
 import { wechatInstallationsOptions } from "@multica/core/wechat";
+import { weixinInstallationsOptions } from "@multica/core/weixin";
 import { telegramInstallationsOptions } from "@multica/core/telegram";
 import type {
   Agent,
@@ -17,6 +18,7 @@ import type {
   WecomInstallation,
   WechatInstallation,
   TelegramInstallation,
+  WeixinInstallation,
 } from "@multica/core/types";
 import type { ChannelIntegration } from "./settings-navigation";
 
@@ -26,7 +28,8 @@ export type ChannelConnection =
   | { channel: "dingtalk"; installation: DingTalkInstallation }
   | { channel: "wecom"; installation: WecomInstallation }
   | { channel: "wechat"; installation: WechatInstallation }
-  | { channel: "telegram"; installation: TelegramInstallation };
+  | { channel: "telegram"; installation: TelegramInstallation }
+  | { channel: "weixin"; installation: WeixinInstallation };
 
 export function channelChatLink(
   connection: ChannelConnection,
@@ -60,7 +63,8 @@ export function useMessagingChannels() {
   const wecom = useQuery({ ...wecomInstallationsOptions(wsId), enabled });
   const wechat = useQuery({ ...wechatInstallationsOptions(wsId), enabled });
   const telegram = useQuery({ ...telegramInstallationsOptions(wsId), enabled });
-  const queries = { lark, slack, dingtalk, wecom, wechat, telegram };
+  const weixin = useQuery({ ...weixinInstallationsOptions(wsId), enabled });
+  const queries = { lark, slack, dingtalk, wecom, wechat, telegram, weixin };
   const connections: ChannelConnection[] = [
     ...(lark.data?.installations ?? []).map((installation) => ({
       channel: "lark" as const,
@@ -80,6 +84,10 @@ export function useMessagingChannels() {
     })),
     ...(wechat.data?.installations ?? []).map((installation) => ({
       channel: "wechat" as const,
+      installation,
+    })),
+    ...(weixin.data?.installations ?? []).map((installation) => ({
+      channel: "weixin" as const,
       installation,
     })),
     ...(telegram.data?.installations ?? []).map((installation) => ({

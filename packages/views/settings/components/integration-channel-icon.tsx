@@ -1,3 +1,4 @@
+import { WeChat } from "@multica/ui/icons";
 import { DingTalkMark } from "./dingtalk-mark";
 import { LarkMark } from "./lark-mark";
 import { SlackMark } from "./slack-mark";
@@ -5,7 +6,7 @@ import { TelegramMark } from "./telegram-mark";
 import { WecomMark } from "./wecom-mark";
 import { WechatMark } from "./wechat-mark";
 
-type IntegrationChannel = "lark" | "slack" | "dingtalk" | "wecom" | "wechat" | "telegram";
+type IntegrationChannel = "lark" | "slack" | "dingtalk" | "wecom" | "wechat" | "telegram" | "weixin";
 
 // Every channel gets its own brand mark, never a generic lucide glyph: the icon
 // is what tells a reader which platform the section belongs to, and a stand-in
@@ -19,6 +20,7 @@ export function IntegrationChannelIcon({ channel }: { channel: IntegrationChanne
     dingtalk: <DingTalkMark className="h-5 w-5" />,
     wecom: <WecomMark className="h-4 w-4" />,
     wechat: <WechatMark className="h-4 w-4" />,
+    weixin: <WeChat className="h-4 w-4" />,
     telegram: <TelegramMark className="h-4 w-4" />,
   }[channel];
 

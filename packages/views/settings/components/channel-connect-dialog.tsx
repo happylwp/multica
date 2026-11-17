@@ -28,6 +28,7 @@ import { useMessagingChannels } from "./use-messaging-channels";
 import { LarkChannelAuthorization } from "./lark-channel-authorization";
 import { WecomChannelAuthorization } from "./wecom-channel-authorization";
 import { WechatChannelAuthorization } from "./wechat-channel-authorization";
+import { WeixinAgentBindButton } from "./weixin-tab";
 
 export function ChannelConnectDialog({
   agents,
@@ -272,6 +273,8 @@ function ChannelConnectSteps({
               region="feishu"
               onClose={onClose}
             />
+          ) : channel === "weixin" ? (
+            <WeixinAgentBindButton agentId={agent.id} agentName={agent.name} onBusyChange={onBusyChange} />
           ) : scanWecom ? (
             <WecomChannelAuthorization
               wsId={wsId}
@@ -306,9 +309,10 @@ function ChannelCredentials({
   onClose,
   onBusyChange,
 }: {
-  // wechat binds by scanning a QR (WechatChannelAuthorization), so the
-  // credentials form only ever sees the token-based channels.
-  channel: Exclude<ChannelIntegration, "lark" | "wechat">;
+  // wechat and weixin both bind by scanning a QR (WechatChannelAuthorization /
+  // WeixinAgentBindButton), so the credentials form only ever sees the
+  // token-based channels.
+  channel: Exclude<ChannelIntegration, "lark" | "wechat" | "weixin">;
   wsId: string;
   agentId: string;
   onClose: () => void;

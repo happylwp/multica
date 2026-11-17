@@ -85,7 +85,7 @@ export function FundWatchlistFundDialog({
       >
         {trigger}
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[85%] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="pr-6">{wf.name || wf.code}</DialogTitle>
           <DialogDescription className="flex flex-wrap items-center gap-1.5">

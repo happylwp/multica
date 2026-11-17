@@ -57,6 +57,10 @@ vi.mock("@multica/core/api", async (original) => ({
       "listWecomInstallations",
       "listWechatInstallations",
       "listTelegramInstallations",
+      "listWeixinInstallations",
+      "beginWeixinLogin",
+      "pollWeixinLogin",
+      "cancelWeixinLogin",
       "registerSlackBYO",
       "registerDingTalkBYO",
       "registerWecomBYO",
@@ -67,6 +71,7 @@ vi.mock("@multica/core/api", async (original) => ({
       "deleteWecomInstallation",
       "deleteWechatInstallation",
       "deleteTelegramInstallation",
+      "deleteWeixinInstallation",
       "listAgentDingTalkGroups",
       "listAgents",
       "beginLarkInstall",
@@ -125,6 +130,7 @@ beforeEach(() => {
     "listWecomInstallations",
     "listWechatInstallations",
     "listTelegramInstallations",
+    "listWeixinInstallations",
   ] as const) {
     vi.mocked(api[name]).mockResolvedValue(listing() as never);
   }
@@ -342,7 +348,9 @@ describe("agent messaging channels", () => {
     expect(screen.queryByText("Telegram")).toBeNull();
   });
 
-  it.each(["lark", "slack", "dingtalk", "wecom", "wechat", "telegram"] as const)(
+  it.each(
+    ["lark", "slack", "dingtalk", "wecom", "wechat", "telegram", "weixin"] as const,
+  )(
     "confirms %s disconnect and preserves the connection on failure",
     async (channel) => {
       const methods = {
@@ -352,6 +360,7 @@ describe("agent messaging channels", () => {
         wecom: ["listWecomInstallations", "deleteWecomInstallation"],
         wechat: ["listWechatInstallations", "deleteWechatInstallation"],
         telegram: ["listTelegramInstallations", "deleteTelegramInstallation"],
+        weixin: ["listWeixinInstallations", "deleteWeixinInstallation"],
       } as const;
       const [list, remove] = methods[channel];
       vi.mocked(api[list]).mockResolvedValue(listing([active]) as never);
@@ -394,6 +403,37 @@ const platformName = {
 } as const;
 
 describe("shared connection dialog", () => {
+  it("starts and cancels a WeChat QR login for the selected agent", async () => {
+    const login = {
+      id: "login-1",
+      status: "wait",
+      qr_code_url: "https://weixin.qq.com/test-qr",
+      expires_at: new Date(Date.now() + 300_000).toISOString(),
+    };
+    vi.mocked(api.beginWeixinLogin).mockResolvedValue(login);
+    vi.mocked(api.pollWeixinLogin).mockResolvedValue(login);
+    vi.mocked(api.cancelWeixinLogin).mockResolvedValue(undefined);
+    show(
+      <ChannelConnectDialog
+        agents={[agent]}
+        initialAgent={agent}
+        initialChannel="weixin"
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+    const platform = await screen.findByRole("button", { name: "WeChat" });
+    await waitFor(() => expect(platform).toBeEnabled());
+    fireEvent.click(platform);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect WeChat" }));
+    expect(await screen.findByTitle("WeChat connection QR code")).toBeInTheDocument();
+    expect(api.beginWeixinLogin).toHaveBeenCalledWith("ws-1", agent.id);
+    const qrDialog = screen.getByRole("dialog", { name: "Connect WeChat to Mika" });
+    fireEvent.click(within(qrDialog).getAllByRole("button", { name: "Close" })[0]!);
+    await waitFor(() => expect(api.cancelWeixinLogin).toHaveBeenCalledWith("ws-1", login.id));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Connect WeChat to Mika" })).toBeNull());
+  });
+
   it("offers only Feishu for new connections while international Lark is disabled", async () => {
     show(
       <ChannelConnectDialog
@@ -615,7 +655,7 @@ describe("workspace overview", () => {
     );
     expect(state.replace).toHaveBeenCalledWith("/acme/settings?tab=channels");
     expect(screen.getByText("Who can connect")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Connect" })).toHaveLength(6);
+    expect(screen.getAllByRole("button", { name: "Connect" })).toHaveLength(7);
   });
 
   it("reports failed reads as unavailable and keeps a retry control", async () => {

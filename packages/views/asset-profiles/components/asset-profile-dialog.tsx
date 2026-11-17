@@ -88,7 +88,7 @@ export function AssetProfileDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden p-0">
+      <DialogContent className="flex max-h-[85%] w-full max-w-lg flex-col overflow-hidden p-0">
         <div className="flex shrink-0 items-center border-b px-5 pt-4 pb-3">
           <DialogTitle className="truncate text-title-sm font-medium">
             {profile
