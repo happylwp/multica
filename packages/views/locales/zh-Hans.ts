@@ -1,4 +1,5 @@
 import type { LocaleResources } from "@multica/core/i18n";
+import zhHansDocs from "./zh-Hans/docs.json";
 import zhHansCommon from "./zh-Hans/common.json";
 import zhHansAuth from "./zh-Hans/auth.json";
 import zhHansSettings from "./zh-Hans/settings.json";
@@ -27,6 +28,7 @@ import zhHansBilling from "./zh-Hans/billing.json";
 import zhHansAssets from "./zh-Hans/assets.json";
 
 const resources: LocaleResources = {
+  docs: zhHansDocs,
   common: zhHansCommon,
   auth: zhHansAuth,
   settings: zhHansSettings,

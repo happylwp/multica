@@ -410,6 +410,12 @@ export function AppRail({
       label: t(($) => $.rail.assets),
       fullLabel: t(($) => $.nav.assets),
     },
+    docs: {
+      href: p.docs(),
+      icon: routeIconForPath(p.docs()),
+      label: t(($) => $.rail.docs),
+      fullLabel: t(($) => $.nav.docs),
+    },
     team: {
       href: p.agents(),
       icon: Users,

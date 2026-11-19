@@ -14,7 +14,8 @@
     "settings": "Настройки",
     "views": "Представления",
     "assets": "Assets",
-    "orchestration": "Orchestration"
+    "orchestration": "Orchestration",
+    "docs": "Документы"
   },
   "tab": {
     "issue": "Задача",
@@ -29,7 +30,9 @@
     "attachment": "Вложение",
     "create_agent": "Создать агента",
     "my_agents": "Работа моих агентов",
-    "unknown": "Неизвестная страница"
+    "unknown": "Неизвестная страница",
+    "doc": "Документы",
+    "docFolder": "Папка"
   },
   "help": {
     "trigger": "Помощь",
@@ -94,7 +97,8 @@
     "workspace_meta_many": "{{slug}} · {{count}} участников",
     "workspace_meta_other": "{{slug}} · {{count}} участника",
     "orchestration": "Flows",
-    "assets": "Assets"
+    "assets": "Assets",
+    "docs": "Документы"
   },
   "bottom_bar": {
     "label": "Строка состояния",

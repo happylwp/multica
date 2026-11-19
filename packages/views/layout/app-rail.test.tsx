@@ -165,15 +165,15 @@ describe("AppRail global actions", () => {
 describe("AppRail order", () => {
   it("lists the spaces in the default order", () => {
     renderRail();
-    expect(railOrder()).toEqual(["work", "orchestration", "assets", "team", "chat", "autopilots"]);
+    expect(railOrder()).toEqual(["work", "orchestration", "assets", "docs", "team", "chat", "autopilots"]);
   });
 
   it("follows the saved order", () => {
-    // fork rail spaces (orchestration, assets) missing from the saved order
+    // rail spaces (orchestration, assets, docs) missing from the saved order
     // rejoin it after their default neighbour.
     useRailOrderStore.getState().setOrder(["chat", "work", "team", "autopilots"]);
     renderRail();
-    expect(railOrder()).toEqual(["chat", "work", "orchestration", "assets", "team", "autopilots"]);
+    expect(railOrder()).toEqual(["chat", "work", "orchestration", "assets", "docs", "team", "autopilots"]);
   });
 
   // dnd-kit stops the release's click at the document without cancelling

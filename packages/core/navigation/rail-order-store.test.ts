@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it } from "vitest";
 import { RAIL_SPACES } from "../paths/spaces";
 import { resolveRailOrder, useRailOrderStore } from "./rail-order-store";
@@ -7,40 +8,44 @@ describe("resolveRailOrder", () => {
     expect(resolveRailOrder(null)).toEqual(RAIL_SPACES);
   });
 
-  it("keeps a saved order", () => {
-    const saved = ["chat", "work", "team", "autopilots"];
-    // fork rail spaces (orchestration, assets) missing from the saved order
-    // are placed after their default neighbour, like any newer space.
-    expect(resolveRailOrder(saved)).toEqual([
+  it("inserts rail spaces added since the order was saved", () => {
+    // Upstream's Docs space and the fork's orchestration/assets spaces all
+    // rejoin a saved order right after their default neighbours.
+    expect(resolveRailOrder(["chat", "work", "team", "autopilots"])).toEqual([
       "chat",
       "work",
       "orchestration",
       "assets",
+      "docs",
       "team",
       "autopilots",
     ]);
+    expect(
+      resolveRailOrder(["chat", "inbox", "work", "team", "autopilots"]),
+    ).toEqual(["chat", "work", "orchestration", "assets", "docs", "team", "autopilots"]);
+  });
+
+  it("keeps a saved order", () => {
+    const saved = ["chat", "work", "orchestration", "assets", "docs", "team", "autopilots"];
+    expect(resolveRailOrder(saved)).toEqual(saved);
   });
 
   it("drops unknown and repeated ids", () => {
-    expect(resolveRailOrder(["chat", "settings", 3, "chat", "work", "team", "autopilots"])).toEqual([
-      "chat",
-      "work",
-      "orchestration",
-      "assets",
-      "team",
-      "autopilots",
-    ]);
+    expect(
+      resolveRailOrder(["chat", "settings", 3, "chat", "work", "team", "autopilots"]),
+    ).toEqual(["chat", "work", "orchestration", "assets", "docs", "team", "autopilots"]);
+    expect(
+      resolveRailOrder(["chat", "settings", 3, "chat", "work", "docs", "team", "autopilots"]),
+    ).toEqual(["chat", "work", "orchestration", "assets", "docs", "team", "autopilots"]);
   });
 
   it("drops the retired Inbox space from an order saved before it moved into Work", () => {
-    expect(resolveRailOrder(["chat", "inbox", "work", "team", "autopilots"])).toEqual([
-      "chat",
-      "work",
-      "orchestration",
-      "assets",
-      "team",
-      "autopilots",
-    ]);
+    expect(
+      resolveRailOrder(["chat", "inbox", "work", "team", "autopilots"]),
+    ).toEqual(["chat", "work", "orchestration", "assets", "docs", "team", "autopilots"]);
+    expect(
+      resolveRailOrder(["chat", "inbox", "work", "docs", "team", "autopilots"]),
+    ).toEqual(["chat", "work", "orchestration", "assets", "docs", "team", "autopilots"]);
   });
 
   it("puts a space missing from the saved order after its default neighbour", () => {
@@ -50,12 +55,14 @@ describe("resolveRailOrder", () => {
       "work",
       "orchestration",
       "assets",
+      "docs",
       "team",
     ]);
     expect(resolveRailOrder(["chat", "team", "autopilots"])).toEqual([
       "work",
       "orchestration",
       "assets",
+      "docs",
       "chat",
       "team",
       "autopilots",
@@ -76,13 +83,20 @@ describe("useRailOrderStore", () => {
       "work",
       "orchestration",
       "assets",
+      "docs",
       "team",
       "autopilots",
     ]);
+    // A complete custom order is kept verbatim.
+    const order = ["chat", "work", "orchestration", "assets", "docs", "team", "autopilots"] as const;
+    useRailOrderStore.getState().setOrder(order);
+    expect(useRailOrderStore.getState().order).toEqual(order);
   });
 
   it("forgets the order once it is back to the default", () => {
-    useRailOrderStore.getState().setOrder(["team", "work", "chat", "autopilots"]);
+    useRailOrderStore
+      .getState()
+      .setOrder(["team", "work", "docs", "chat", "autopilots"]);
     useRailOrderStore.getState().setOrder(RAIL_SPACES);
     expect(useRailOrderStore.getState().order).toBeNull();
   });

@@ -14,7 +14,8 @@
     "settings": "设置",
     "views": "视图",
     "assets": "资产档案",
-    "orchestration": "编排全景"
+    "orchestration": "编排全景",
+    "docs": "知识库"
   },
   "tab": {
     "issue": "任务",
@@ -29,7 +30,9 @@
     "attachment": "附件",
     "create_agent": "创建智能体",
     "my_agents": "我的智能体在做",
-    "unknown": "未知页面"
+    "unknown": "未知页面",
+    "doc": "知识库",
+    "docFolder": "文件夹"
   },
   "help": {
     "trigger": "帮助",
@@ -120,7 +123,8 @@
     "mark_all_read_failed": "全部标为已读失败",
     "reset_order": "恢复默认顺序",
     "copy_workspace_link": "复制工作区链接",
-    "workspace_meta_other": "{{slug}} · {{count}} 位成员"
+    "workspace_meta_other": "{{slug}} · {{count}} 位成员",
+    "docs": "知识库"
   },
   "bottom_bar": {
     "label": "状态栏",
