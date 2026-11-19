@@ -432,6 +432,8 @@ export type {
   WorkspaceSubscriptionPlanPrices,
   WorkspaceSubscriptionPrices,
   WorkspacePlanChangeHold,
+  WorkspaceTrial,
+  WorkspaceTrialState,
   CreateWorkspaceSubscriptionCheckoutRequest,
   CreateWorkspaceSubscriptionCheckoutResponse,
   PreviewWorkspaceSeatPurchaseRequest,
