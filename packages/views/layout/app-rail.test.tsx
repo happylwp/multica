@@ -188,8 +188,19 @@ describe("AppRail order", () => {
     useRailOrderStore.getState().setOrder(order);
     configStore.getState().setFeatureFlags({});
     renderRail();
-    expect(railOrder()).toEqual(["chat", "work", "team", "autopilots"]);
-    expect(useRailOrderStore.getState().order).toEqual(order);
+    // rail spaces (orchestration, assets) missing from the saved order
+    // rejoin it after their default neighbour; Docs stays hidden but keeps
+    // its saved place in the store.
+    expect(railOrder()).toEqual(["chat", "work", "orchestration", "assets", "team", "autopilots"]);
+    expect(useRailOrderStore.getState().order).toEqual([
+      "chat",
+      "docs",
+      "work",
+      "orchestration",
+      "assets",
+      "team",
+      "autopilots",
+    ]);
   });
 
   // dnd-kit stops the release's click at the document without cancelling
