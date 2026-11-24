@@ -4590,8 +4590,15 @@ func TestCodexExecuteRetriesAfterModelCatalogRefreshFailure(t *testing.T) {
 		`fi`+"\n")
 
 	result, messages := executeFakeCodexCollectingMessages(t, fakePath, ExecOptions{
-		Timeout:                   20 * time.Second,
-		SemanticInactivityTimeout: 100 * time.Millisecond,
+		Timeout: 20 * time.Second,
+		// MARO-529: 600ms loaded-host margin for the retry leg's back-to-back
+		// echos, see the AllowsContinuous* timing-budget note (100ms left a
+		// ~12ms first-turn margin; at load ~20 the deschedule between two
+		// adjacent echos was measured at 68ms). The stall leg is unaffected:
+		// its sleep 2 still exceeds the 4/5 first-turn ceiling (480ms), so
+		// attempt 1 still times out on the first-turn watchdog and the
+		// catalog-signal retry path is exercised exactly as before.
+		SemanticInactivityTimeout: 600 * time.Millisecond,
 	}, 20*time.Second)
 
 	if result.Status != "completed" {
@@ -4658,9 +4665,13 @@ func TestCodexExecuteRetryAfterCatalogFailureStartsFreshThreadForResume(t *testi
 		// Supplied by the daemon since MUL-5722: this package no longer holds
 		// the wording, because only the caller knows whether the surface's
 		// conversation can still be read.
-		ResumeContinuityNotice:    "[System notice] the previous conversation context could not be restored.\n\n",
-		Timeout:                   20 * time.Second,
-		SemanticInactivityTimeout: 100 * time.Millisecond,
+		ResumeContinuityNotice: "[System notice] the previous conversation context could not be restored.\n\n",
+		Timeout:                20 * time.Second,
+		// MARO-529: 600ms loaded-host margin for the retry leg's back-to-back
+		// echos, see the AllowsContinuous* timing-budget note (100ms left a
+		// ~12ms first-turn margin). The stall leg's sleep 2 still exceeds the
+		// 480ms first-turn ceiling, so the retry path is unchanged.
+		SemanticInactivityTimeout: 600 * time.Millisecond,
 	}, 20*time.Second)
 
 	if result.Status != "completed" {
