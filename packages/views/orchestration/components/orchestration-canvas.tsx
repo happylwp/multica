@@ -10,7 +10,7 @@ import {
   type NodeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useWorkspacePaths } from "@multica/core/paths";
+import { useWorkspacePaths, issueRouteRef } from "@multica/core/paths";
 import { useT } from "../../i18n";
 import { useIntentNavigate } from "../../navigation";
 import type { WorkflowGraph } from "../map/types";
@@ -80,9 +80,15 @@ export function OrchestrationCanvas({
 
   const onNodeClick = useCallback<NodeMouseHandler>(
     (_event, node: Node) => {
-      const issueId = (node.data as OrchestrationNodeData | undefined)?.issueId;
+      const data = node.data as OrchestrationNodeData | undefined;
+      const issueId = data?.issueId;
       if (!issueId) return;
-      intentNavigate(paths.issueDetail(issueId), "push");
+      intentNavigate(
+        paths.issueDetail(
+          issueRouteRef({ id: issueId, identifier: data.issueIdentifier }),
+        ),
+        "push",
+      );
     },
     [intentNavigate, paths],
   );

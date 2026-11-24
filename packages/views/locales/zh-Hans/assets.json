@@ -92,7 +92,7 @@
     "invalid_json": "不是有效的 JSON。",
     "not_object": "文档必须是 JSON 对象。",
     "save": "创建",
-    "saving": "保存中…"
+    "saving": "保存中..."
   },
   "fund_detail": {
     "source_note": "东方财富 · 截至 {{date}}",
@@ -129,7 +129,7 @@
     "description": "表单维护基金持仓明细，支持从东方财富拉取新基金信息",
     "code": "基金代码",
     "fetch": "拉取",
-    "fetching": "拉取中…",
+    "fetching": "拉取中...",
     "fetch_failed": "拉取失败，请检查代码后重试",
     "bad_code": "请输入 6 位数字基金代码",
     "duplicate_code": "该基金代码已存在",
@@ -145,7 +145,7 @@
     "note": "备注",
     "remove": "移除",
     "save": "保存",
-    "saving": "保存中…",
+    "saving": "保存中...",
     "cancel": "取消",
     "missing_identity": "每只基金需要代码与名称",
     "invalid_number": "数值字段无效",

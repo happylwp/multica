@@ -12,6 +12,7 @@ export type OrchestrationNodeData = {
   sublabel: string;
   tag: string;
   issueId?: string;
+  issueIdentifier?: string;
   laneKind?: LaneKind;
   col: number;
   lane: string;
@@ -79,6 +80,7 @@ export function toFlowGraph(graph: WorkflowGraph): {
         sublabel: node.sublabel,
         tag: node.tag,
         issueId: node.issueId,
+        issueIdentifier: node.issueIdentifier,
         laneKind: node.laneKind,
         col: node.col,
         lane: node.lane,

@@ -186,11 +186,11 @@ describe("AppRail order", () => {
   });
 
   it("leaves Docs out while docs_v1 is off, keeping its saved place", () => {
-    const order = ["chat", "docs", "work", "team", "autopilots"] as const;
+    const order = ["chat", "docs", "work", "orchestration", "assets", "team", "autopilots"] as const;
     useRailOrderStore.getState().setOrder(order);
     configStore.getState().setFeatureFlags({});
     renderRail();
-    expect(railOrder()).toEqual(["chat", "work", "team", "autopilots"]);
+    expect(railOrder()).toEqual(["chat", "work", "orchestration", "assets", "team", "autopilots"]);
     expect(useRailOrderStore.getState().order).toEqual(order);
   });
 

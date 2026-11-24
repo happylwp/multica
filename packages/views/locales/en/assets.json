@@ -92,7 +92,7 @@
     "invalid_json": "Not valid JSON.",
     "not_object": "Document must be a JSON object.",
     "save": "Create",
-    "saving": "Saving…"
+    "saving": "Saving..."
   },
   "fund_detail": {
     "source_note": "East Money · as of {{date}}",
@@ -129,7 +129,7 @@
     "description": "Maintain fund positions; pull new funds from East Money",
     "code": "Fund code",
     "fetch": "Fetch",
-    "fetching": "Fetching…",
+    "fetching": "Fetching...",
     "fetch_failed": "Fetch failed — check the code and retry",
     "bad_code": "Enter a 6-digit fund code",
     "duplicate_code": "This fund code already exists",
@@ -145,7 +145,7 @@
     "note": "Note",
     "remove": "Remove",
     "save": "Save",
-    "saving": "Saving…",
+    "saving": "Saving...",
     "cancel": "Cancel",
     "missing_identity": "Each fund needs a code and a name",
     "invalid_number": "Invalid number field",

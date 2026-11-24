@@ -65,7 +65,7 @@ export function OrchestrationToolbar({
       <p className="ml-auto text-caption text-muted-foreground">
         {t(($) => $.orchestration.stats, {
           waiting: stats.waiting,
-          blocked: stats.trueBlocked,
+          stalled: stats.trueBlocked,
           pending: stats.pending,
         })}
       </p>

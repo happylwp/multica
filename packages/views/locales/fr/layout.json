@@ -281,7 +281,7 @@
     "filter_in_progress": "en cours",
     "filter_in_review": "en revue",
     "filter_done": "terminé",
-    "stats": "attente {{waiting}} · bloqué {{blocked}} · décision {{pending}}",
+    "stats": "attente {{waiting}} · bloqué {{stalled}} · décision {{pending}}",
     "loading": "Chargement du graphe…",
     "load_error": "Impossible de charger les issues.",
     "retry": "Réessayer",

@@ -304,7 +304,7 @@
     "filter_in_progress": "in progress",
     "filter_in_review": "in review",
     "filter_done": "done",
-    "stats": "waiting {{waiting}} · blocked {{blocked}} · needs decision {{pending}}",
+    "stats": "waiting {{waiting}} · blocked {{stalled}} · needs decision {{pending}}",
     "loading": "Loading the workspace graph…",
     "load_error": "Could not load issues for the graph.",
     "retry": "Retry",

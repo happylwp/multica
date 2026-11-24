@@ -201,6 +201,7 @@ function expandFullChain(
       tag: displayTag(root, cls),
       width: NODE_WIDTH,
       issueId: root.id,
+      issueIdentifier: root.identifier,
       laneKind,
     });
     visible.push({ issue: root, id, stage: 0, cls });
@@ -222,6 +223,7 @@ function expandFullChain(
       tag: displayTag(child, cls),
       width: NODE_WIDTH,
       issueId: child.id,
+      issueIdentifier: child.identifier,
       laneKind,
     });
     const rec = { issue: child, id, stage, cls };
@@ -440,6 +442,7 @@ export function buildWorkflow(
         tag: ev.cls.pending ? "待决策" : "返工",
         width: NODE_WIDTH,
         issueId: ev.issue.id,
+        issueIdentifier: ev.issue.identifier,
         laneKind: "meta",
       });
       const origin = visible.find((v) => v.issue.id === ev.issue.id);

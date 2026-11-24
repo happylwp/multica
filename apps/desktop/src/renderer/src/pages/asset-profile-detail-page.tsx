@@ -1,20 +1,14 @@
 import { useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import {
   AssetProfileDetailPage as SharedAssetProfileDetailPage,
 } from "@multica/views/asset-profiles";
-import { useWorkspaceId } from "@multica/core/hooks";
-import { assetProfileDetailOptions } from "@multica/core/workspace/queries";
-import { useDocumentTitle } from "@/hooks/use-document-title";
 
+// Window/tab titles follow the upstream tab title contract (MUL-9772):
+// `DocumentTitleSync` resolves them from the URL via `useTabPresentation`
+// (`/assets` and `/assets/:id` resolve through the `assets` page segment),
+// so this wrapper no longer writes `document.title` itself.
 export function AssetProfileDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const wsId = useWorkspaceId();
-  const { data: profile } = useQuery(
-    assetProfileDetailOptions(wsId, id ?? ""),
-  );
-
-  useDocumentTitle(profile?.name ?? "Asset");
 
   if (!id) return null;
   return <SharedAssetProfileDetailPage profileId={id} />;

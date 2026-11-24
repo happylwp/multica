@@ -34,6 +34,8 @@ export interface WorkflowNode {
   width: number;
   yOffset?: number;
   issueId?: string;
+  /** The issue's human identifier (e.g. `MARO-506`), carried for route refs. */
+  issueIdentifier?: string;
   laneKind?: LaneKind;
 }
 
