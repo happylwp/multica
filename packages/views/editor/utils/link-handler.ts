@@ -39,6 +39,7 @@ const WORKSPACE_ROUTE_SEGMENTS = new Set([
   "apps",
   "settings",
   "orchestration",
+  "assets",
 ]);
 
 /**

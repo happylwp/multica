@@ -122,6 +122,27 @@ describe("openLink", () => {
     expect(navigatedPaths()).toEqual(["/acme/issues/MUL-1"]);
   });
 
+  // The rail spaces beyond the originals — orchestration, assets, docs. assets
+  // was missing from the segment set (MARO-494): a slugless /assets link lost
+  // its workspace instead of opening the in-app viewer, while the same shape
+  // under orchestration or docs worked. One case per space pins these three;
+  // the segment set itself stays hand-maintained, so a newly added space has to
+  // be registered in WORKSPACE_ROUTE_SEGMENTS the same way.
+  it("scopes slugless links to the orchestration, assets and docs spaces (MARO-494)", () => {
+    openLink("/orchestration", "acme", APP_ORIGIN);
+    openLink("/assets", "acme", APP_ORIGIN);
+    openLink("/assets/profile-1", "acme", APP_ORIGIN);
+    openLink("/docs", "acme", APP_ORIGIN);
+    openLink("/docs/doc-1", "acme", APP_ORIGIN);
+    expect(navigatedPaths()).toEqual([
+      "/acme/orchestration",
+      "/acme/assets",
+      "/acme/assets/profile-1",
+      "/acme/docs",
+      "/acme/docs/doc-1",
+    ]);
+  });
+
   it("leaves a path that already carries a slug alone", () => {
     openLink("/other/issues/MUL-1", "acme", APP_ORIGIN);
     expect(navigatedPaths()).toEqual(["/other/issues/MUL-1"]);
