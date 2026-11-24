@@ -260,6 +260,8 @@ services:
       # iLink bot token and per-conversation context_token at rest, so this
       # single deployment-wide key is all the operator needs to set here.
       MULTICA_WECHAT_SECRET_KEY: ${MULTICA_WECHAT_SECRET_KEY:-}
+      # iLink-only CONNECT proxy for that integration. Empty = direct dial.
+      MULTICA_WECHAT_HTTPS_PROXY: ${MULTICA_WECHAT_HTTPS_PROXY:-}
       # Feature flags, documented in .env.example. Each is passed only when
       # set: an empty FF_ value would pin the flag off instead of leaving the
       # default. Workspace Docs is off until FF_DOCS_V1=true and live issue
