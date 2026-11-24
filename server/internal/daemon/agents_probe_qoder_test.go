@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -23,8 +25,14 @@ func TestProbeAgentCLIs_QoderResolvesViaLoginShell(t *testing.T) {
 	resetShellResolveCacheForTest(t)
 
 	// An empty PATH guarantees the exec.LookPath leg misses, so the only way
-	// qoder can resolve is the login-shell fallback.
+	// qoder can resolve is the login-shell fallback. MULTICA_QODER_PATH must
+	// be cleared too: probe() treats any non-empty value as an operator pin,
+	// so a host that exports it (a desktop-launched test runner, a dev shell)
+	// would either hard-miss or win over the fallback and fail this test for
+	// reasons unrelated to the code under test (MARO-529). The empty-string
+	// reset matches the convention in the devin/codearts/dsh/omp probe tests.
 	t.Setenv("PATH", "")
+	t.Setenv("MULTICA_QODER_PATH", "")
 
 	agents := probeAgentCLIs()
 	entry, ok := agents["qoder"]
@@ -50,7 +58,12 @@ func TestProbeAgentCLIs_QoderCNResolvesIndependently(t *testing.T) {
 		}
 	}
 	resetShellResolveCacheForTest(t)
+	// Same host-env immunity as the non-CN case above: this test asserts on
+	// BOTH qoder entries, so both pin variables must be neutralized — a
+	// host-exported MULTICA_QODERCLICN_PATH hard-misses qoderclicn (MARO-529).
 	t.Setenv("PATH", "")
+	t.Setenv("MULTICA_QODER_PATH", "")
+	t.Setenv("MULTICA_QODERCLICN_PATH", "")
 
 	agents := probeAgentCLIs()
 	entry, ok := agents["qoderclicn"]
@@ -85,5 +98,41 @@ func TestProbeAgentCLIs_QoderPinnedPathStaysHardMiss(t *testing.T) {
 
 	if entry, ok := probeAgentCLIs()["qoder"]; ok {
 		t.Errorf("pinned-but-missing MULTICA_QODER_PATH resolved to %q, want a hard miss", entry.Path)
+	}
+}
+
+// TestProbeAgentCLIs_QoderPinnedPathWinsOverLoginShell is the other half of
+// the pinned-path matrix: when MULTICA_QODER_PATH points at a binary that
+// EXISTS, the pin wins outright and the login-shell fallback must not
+// override it. Together with QoderPinnedPathStaysHardMiss this locks the
+// probe() contract that an explicit operator pin is authoritative in both
+// states, so the login-shell tests above can safely neutralize the variable
+// without hiding a pin-handling regression (MARO-529).
+func TestProbeAgentCLIs_QoderPinnedPathWinsOverLoginShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX executable fixture")
+	}
+	pinned := filepath.Join(t.TempDir(), "pinned-qodercli")
+	writeDaemonTestExecutable(t, pinned, []byte("#!/bin/sh\nexit 0\n"))
+
+	orig := resolveAgentsViaLoginShell
+	t.Cleanup(func() { resolveAgentsViaLoginShell = orig })
+	resolveAgentsViaLoginShell = func([]string) map[string]string {
+		return map[string]string{"qodercli": "/fake/npm-global/bin/qodercli"}
+	}
+	resetShellResolveCacheForTest(t)
+
+	t.Setenv("PATH", "")
+	t.Setenv("MULTICA_QODER_PATH", pinned)
+
+	entry, ok := probeAgentCLIs()["qoder"]
+	if !ok {
+		t.Fatalf("existing MULTICA_QODER_PATH pin %q was not discovered", pinned)
+	}
+	if entry.Path != pinned {
+		t.Errorf("qoder path = %q, want the pinned %q (pin must win over the login-shell fallback)", entry.Path, pinned)
+	}
+	if entry.Command != pinned {
+		t.Errorf("qoder command = %q, want the pinned path echoed as the command", entry.Command)
 	}
 }
