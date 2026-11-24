@@ -84,6 +84,11 @@ const (
 	// the server leave out the workflow brief's lines that override those
 	// rules; an older daemon still states them, so it keeps getting them.
 	DaemonCapabilityWorkflowStatusRulesV1 = "workflow-status-rules-v1"
+	// DaemonCapabilityWorkflowStatusMapV1 advertises that the daemon's
+	// runtime brief states the status-map rules for an issue whose claim
+	// carries a status-map workflow brief (MUL-9913). Without it the server
+	// keeps sending the per-step command brief those daemons point at.
+	DaemonCapabilityWorkflowStatusMapV1 = "workflow-status-map-v1"
 	// DaemonCapabilityTaskSupplementAuthorV1 is sent when claiming a
 	// supplement: the daemon renders the claim's author_type, so an agent's
 	// message is presented as an agent's. Without it the server marks an
@@ -107,6 +112,13 @@ const (
 	// synchronous restore — a client without this capability would silently
 	// drop the user's prompt, and keeps the legacy synchronous restore instead.
 	AppCapabilityChatDraftRestoreV1 = "chat-draft-restore-v1"
+
+	// AppCapabilityWorkspaceGuestsV1 is advertised (X-Client-Capabilities) by
+	// clients that can render the guest member role. Workspace member and
+	// invitation lists leave guest rows out for any other caller: clients
+	// released before guests index their role tables by role and crash on an
+	// unknown one. Authorization never depends on it.
+	AppCapabilityWorkspaceGuestsV1 = "workspace-guests-v1"
 )
 
 // ChatQuickAction is a server-validated follow-up attached to one assistant

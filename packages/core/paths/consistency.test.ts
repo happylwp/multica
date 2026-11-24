@@ -28,6 +28,7 @@ describe("paths.workspace() shape", () => {
       ["runtimes", "runtimes"],
       ["skills", "skills"],
       ["assets", "assets"],
+      ["apps", "apps"],
       ["squads", "squads"],
       ["settings", "settings"],
       ["orchestration", "orchestration"],

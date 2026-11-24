@@ -89,9 +89,9 @@ func (h *Handler) requireDaemonWorkspaceAccess(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	_, ok := h.requireWorkspaceMember(w, r, workspaceID, "not found")
+	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "not found")
 	if ok && userID != "" {
-		h.MembershipCache.Set(r.Context(), userID, workspaceID)
+		h.cacheMembership(r.Context(), member)
 	}
 	return ok
 }
@@ -317,11 +317,13 @@ func (h *Handler) verifyDaemonWorkspaceAccess(r *http.Request, workspaceID strin
 	if h.MembershipCache.Get(r.Context(), userID, workspaceID) {
 		return true
 	}
-	_, err := h.getWorkspaceMember(r.Context(), userID, workspaceID)
-	if err != nil {
+	// The same rule as requireWorkspaceMember: a guest reaches only the
+	// routes on its allowlist, which no daemon route is.
+	member, err := h.getWorkspaceMember(r.Context(), userID, workspaceID)
+	if err != nil || (projectaccess.IsGuestRole(member.Role) && !middleware.GuestMayRequest(r)) {
 		return false
 	}
-	h.MembershipCache.Set(r.Context(), userID, workspaceID)
+	h.cacheMembership(r.Context(), member)
 	return true
 }
 
@@ -1121,6 +1123,9 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 	})
 
 	repoResp := workspaceReposResponse(req.WorkspaceID, ws.Repos, ws.Settings, h.cfg.GitExtraCACerts)
+	if !h.daemonCredentialSeesWorkspaceConfig(r, req.WorkspaceID) {
+		repoResp = workspaceReposResponse(req.WorkspaceID, nil, nil, h.cfg.GitExtraCACerts)
+	}
 
 	body := map[string]any{
 		"runtimes":      resp,
@@ -1332,6 +1337,10 @@ func (h *Handler) GetDaemonWorkspaceRepos(w http.ResponseWriter, r *http.Request
 	if !h.requireDaemonWorkspaceAccess(w, r, workspaceID) {
 		return
 	}
+	if !h.daemonCredentialSeesWorkspaceConfig(r, workspaceID) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
 
 	ws, err := h.Queries.GetWorkspace(r.Context(), parseUUID(workspaceID))
 	if err != nil {
@@ -1340,6 +1349,25 @@ func (h *Handler) GetDaemonWorkspaceRepos(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusOK, workspaceReposResponse(workspaceID, ws.Repos, ws.Settings, h.cfg.GitExtraCACerts))
+}
+
+// daemonCredentialSeesWorkspaceConfig reports whether a daemon request may
+// read the workspace's repositories and settings. They configure the
+// workspace, which a guest is not shown (MUL-9420), so the person the
+// credential acts for (a PAT or JWT user, or the owner a daemon token is bound
+// to) must hold a non-guest role now. The membership cache cannot answer this:
+// it holds no role. Qoder-managed and pre-owner daemon tokens act for no
+// person and keep their access.
+func (h *Handler) daemonCredentialSeesWorkspaceConfig(r *http.Request, workspaceID string) bool {
+	userID := requestUserID(r)
+	if middleware.DaemonWorkspaceIDFromContext(r.Context()) != "" {
+		userID = middleware.DaemonTokenOwnerIDFromContext(r.Context())
+		if userID == "" {
+			return true
+		}
+	}
+	member, err := h.getWorkspaceMember(r.Context(), userID, workspaceID)
+	return err == nil && !projectaccess.IsGuestRole(member.Role)
 }
 
 // setRuntimeOffline flips a runtime offline, recording the daemon's reason when
@@ -1550,6 +1578,10 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	rt, lookupErr := h.getAgentRuntime(r.Context(), obsmetrics.RuntimeLookupSourceHeartbeatHTTP, runtimeUUID)
 	runtimeLookupMs = time.Since(lookupStart).Milliseconds()
 	if lookupErr != nil {
+		if writeQueryCancellation(w, r, lookupErr) {
+			outcome = "request_canceled"
+			return
+		}
 		// Only pgx.ErrNoRows means the runtime row is gone. Daemon reads this
 		// 404 as a signal to drop the stale runtime locally; treating a
 		// transient DB error the same way would force daemons to self-cleanup
@@ -2923,6 +2955,12 @@ func claimResponseAgentIdentityMatches(resp AgentTaskResponse) bool {
 func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQueue, runtime db.AgentRuntime, runtimeID, runtimeWorkspaceID string) (resp AgentTaskResponse, deliveredCommentIDs []pgtype.UUID, issueSnapshot []byte, agentSkillCount, builtinSkillCount int, failure *claimBuildFailure) {
 	// Build response with fresh agent data (name + skills + custom_env + custom_args).
 	resp = taskToResponse(*task, runtimeWorkspaceID)
+	// Installed daemons treat a non-empty claim `squad_id` as a quick-create
+	// squad-leader signal (daemon/prompt.go:taskIsSquadLeader). Clear the row's
+	// attribution SquadID here so non-leader squad member runs are never promoted
+	// to leader role; the quick-create branch below re-populates resp.SquadID
+	// exclusively when qc.SquadID is present.
+	resp.SquadID = ""
 	if err := (&service.IssueWakeupService{Tasks: h.TaskService}).CheckClaim(r.Context(), *task); err != nil {
 		if !errors.Is(err, service.ErrWakeupForbidden) {
 			return resp, nil, nil, 0, 0, h.rejectClaimSourceLoad(r.Context(), task, err, "wakeup", resp.WakeupID)
@@ -3302,10 +3340,14 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		// Resolved before the leader briefing, which words the owning
 		// leader's status moves by it (MUL-8145).
 		legacyRuntimeRules := !requestHasClientCapability(r, protocol.DaemonCapabilityWorkflowStatusRulesV1)
-		projectWorkflow := h.claimProjectWorkflow(r.Context(), issue, task, legacyRuntimeRules)
+		stepCommands := !requestHasClientCapability(r, protocol.DaemonCapabilityWorkflowStatusMapV1)
+		projectWorkflow := h.claimProjectWorkflow(r.Context(), issue, task, legacyRuntimeRules, stepCommands)
 		leaderWorkflow := leaderNoWorkflow
 		if projectWorkflow != nil {
 			leaderWorkflow = leaderWorkflowCurrentDaemon
+			if projectWorkflow.StatusMap {
+				leaderWorkflow = leaderWorkflowStatusMap
+			}
 			if projectWorkflow.stepMoved {
 				leaderWorkflow = leaderWorkflowStepMoved
 			} else if legacyRuntimeRules {
@@ -5751,6 +5793,9 @@ func (h *Handler) GetTaskStatus(w http.ResponseWriter, r *http.Request) {
 		// database failures distinct so a brief outage cannot kill healthy work.
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "task not found")
+			return
+		}
+		if writeQueryCancellation(w, r, err) {
 			return
 		}
 		slog.Warn("get agent task status failed", "task_id", taskID, "error", err)

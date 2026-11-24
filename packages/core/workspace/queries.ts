@@ -22,7 +22,6 @@ export const workspaceKeys = {
     ["workspaces", wsId, "squads", squadId, "members-status"] as const,
   skills: (wsId: string) => ["workspaces", wsId, "skills"] as const,
   assetProfiles: (wsId: string) => ["workspaces", wsId, "asset-profiles"] as const,
-  assigneeFrequency: (wsId: string) => ["workspaces", wsId, "assignee-frequency"] as const,
   mcpServers: (wsId: string) => ["workspaces", wsId, "mcp-servers"] as const,
 };
 
@@ -238,19 +237,6 @@ export function myInvitationListOptions() {
     // Recover missed realtime events without refetching on every tab switch.
     staleTime: 30 * 1000,
     refetchOnWindowFocus: true,
-  });
-}
-
-export function assigneeFrequencyOptions(wsId: string) {
-  return queryOptions({
-    queryKey: workspaceKeys.assigneeFrequency(wsId),
-    queryFn: () => api.getAssigneeFrequency(),
-    // Warmed on idle and read by every picker open; keep it past the default
-    // gcTime so the Recent group never waits on a refetch. Counts also change
-    // through paths that don't invalidate it (issue create, other clients), so
-    // a picker opened after a minute revalidates while the cached copy renders.
-    gcTime: Infinity,
-    staleTime: 60 * 1000,
   });
 }
 

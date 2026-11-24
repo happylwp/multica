@@ -816,6 +816,50 @@ func attributionCreateParams(attr attribution.Result) (source pgtype.Text, deleg
 	return
 }
 
+// effectiveTaskSquadID returns a task's squad attribution (usage_squad_id if
+// set, falling back to squad_id for leader/worker tasks created before
+// usage_squad_id existed or stamped directly with squad_id).
+func effectiveTaskSquadID(task db.AgentTaskQueue) pgtype.UUID {
+	if task.UsageSquadID.Valid {
+		return task.UsageSquadID
+	}
+	return task.SquadID
+}
+
+// resolveInheritedSquadID propagates squad usage attribution along delegation
+// chains (leader comment @mention -> member task, multi-hop delegation, and
+// squad-created sub-issues) while leaving direct standalone human triggers
+// unattributed.
+//
+// Callers write the result to usage_squad_id — NEVER to squad_id — so existing
+// leader/worker routing semantics keyed off squad_id (workflow step ownership,
+// self-trigger suppression, conversation root ownership) remain untouched.
+func (s *TaskService) resolveInheritedSquadID(ctx context.Context, issue db.Issue, explicitSquadID, delegatedFromTaskID pgtype.UUID) pgtype.UUID {
+	if explicitSquadID.Valid {
+		return explicitSquadID
+	}
+	if s == nil || s.Queries == nil {
+		return pgtype.UUID{}
+	}
+	if delegatedFromTaskID.Valid {
+		if sourceTask, err := s.Queries.GetAgentTask(ctx, delegatedFromTaskID); err == nil {
+			if sid := effectiveTaskSquadID(sourceTask); sid.Valid {
+				return sid
+			}
+		}
+	}
+	if issue.OriginType.Valid &&
+		(issue.OriginType.String == "agent_create" || issue.OriginType.String == "quick_create") &&
+		issue.OriginID.Valid {
+		if originTask, err := s.Queries.GetAgentTask(ctx, issue.OriginID); err == nil {
+			if sid := effectiveTaskSquadID(originTask); sid.Valid {
+				return sid
+			}
+		}
+	}
+	return pgtype.UUID{}
+}
+
 // RecordHumanDelegation notes that attr's member personally started an agent
 // run, for the self-host telemetry "delegating member" counts. Call it once the
 // run row (or the fold into a queued row) is committed, with the attribution
@@ -1320,6 +1364,7 @@ func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue
 	originatorUserID := attr.UserID
 	runtimeMCPOverlay := s.buildRuntimeMCPOverlay(ctx, originatorUserID, agent)
 	attrSource, attrDelegatedFrom, attrEvidenceKind, attrEvidenceRef := attributionCreateParams(attr)
+	inheritedSquadID := s.resolveInheritedSquadID(ctx, issue, pgtype.UUID{}, attrDelegatedFrom)
 	createParams := db.CreateAgentTaskParams{
 		ID:                   dbid.NewV7(),
 		AgentID:              issue.AssigneeID,
@@ -1331,6 +1376,7 @@ func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue
 		TriggerSummary:       s.buildCommentTriggerSummary(ctx, issue.WorkspaceID, triggerCommentID),
 		ForceFreshSession:    pgtype.Bool{Bool: forceFreshSession, Valid: forceFreshSession},
 		HandoffNote:          pgtype.Text{String: handoffNote, Valid: handoffNote != ""},
+		UsageSquadID:         inheritedSquadID,
 		OriginatorUserID:     originatorUserID,
 		AccountableUserID:    attr.AccountableUserID,
 		RuleVersionID:        attr.RuleVersionID,
@@ -1496,6 +1542,7 @@ func (s *TaskService) enqueueMentionTaskWithCommentPlan(ctx context.Context, iss
 	originatorUserID := attr.UserID
 	runtimeMCPOverlay := s.buildRuntimeMCPOverlay(ctx, originatorUserID, agent)
 	attrSource, attrDelegatedFrom, attrEvidenceKind, attrEvidenceRef := attributionCreateParams(attr)
+	resolvedSquadID := s.resolveInheritedSquadID(ctx, issue, squadID, attrDelegatedFrom)
 	params := db.CreateAgentTaskParams{
 		ID:                   dbid.NewV7(),
 		AgentID:              agentID,
@@ -1509,6 +1556,7 @@ func (s *TaskService) enqueueMentionTaskWithCommentPlan(ctx context.Context, iss
 		ForceFreshSession:    pgtype.Bool{Bool: forceFreshSession, Valid: forceFreshSession},
 		HandoffNote:          pgtype.Text{String: handoffNote, Valid: handoffNote != ""},
 		SquadID:              squadID,
+		UsageSquadID:         resolvedSquadID,
 		OriginatorUserID:     originatorUserID,
 		AccountableUserID:    attr.AccountableUserID,
 		RuleVersionID:        attr.RuleVersionID,
@@ -1706,6 +1754,7 @@ func (s *TaskService) enqueueQuickCreateTask(ctx context.Context, workspaceID, r
 		RuntimeID:            agent.RuntimeID,
 		Priority:             priorityToInt("high"),
 		Context:              contextJSON,
+		UsageSquadID:         squadID,
 		OriginatorUserID:     requesterID,
 		AccountableUserID:    attr.AccountableUserID,
 		RuntimeMcpOverlay:    runtimeMCPOverlay.Overlay,
@@ -8301,18 +8350,19 @@ func IssueToMap(issue db.Issue, issuePrefix string) map[string]any {
 		"parent_issue_id": util.UUIDToPtr(issue.ParentIssueID),
 		// Mirrors handler.IssueResponse.DuplicateOf. Null is only true for a
 		// row with no live mark; IssueToMapResolved resolves it for the rest.
-		"duplicate_of":     nil,
-		"project_id":       util.UUIDToPtr(issue.ProjectID),
-		"position":         issue.Position,
-		"stage":            util.Int4ToPtr(issue.Stage),
-		"start_date":       util.DateToPtr(issue.StartDate),
-		"due_date":         util.DateToPtr(issue.DueDate),
-		"created_at":       util.TimestampToString(issue.CreatedAt),
-		"updated_at":       util.TimestampToString(issue.UpdatedAt),
-		"last_activity_at": util.TimestampToNanoPtr(issue.LastActivityAt),
-		"revision":         issue.Revision,
-		"metadata":         util.JSONObjectOrEmpty(issue.Metadata),
-		"properties":       util.JSONObjectOrEmpty(issue.Properties),
+		"duplicate_of":         nil,
+		"project_id":           util.UUIDToPtr(issue.ProjectID),
+		"position":             issue.Position,
+		"stage":                util.Int4ToPtr(issue.Stage),
+		"start_date":           util.DateToPtr(issue.StartDate),
+		"due_date":             util.DateToPtr(issue.DueDate),
+		"created_at":           util.TimestampToString(issue.CreatedAt),
+		"updated_at":           util.TimestampToString(issue.UpdatedAt),
+		"last_activity_at":     util.TimestampToNanoPtr(issue.LastActivityAt),
+		"revision":             issue.Revision,
+		"description_revision": issue.DescriptionRevision,
+		"metadata":             util.JSONObjectOrEmpty(issue.Metadata),
+		"properties":           util.JSONObjectOrEmpty(issue.Properties),
 	}
 }
 

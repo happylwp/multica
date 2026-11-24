@@ -19,6 +19,7 @@ describe("parseTabSubject", () => {
     ["/acme/usage", { kind: "page", page: "usage" }],
     ["/acme/runtimes", { kind: "page", page: "runtimes" }],
     ["/acme/skills", { kind: "page", page: "skills" }],
+    ["/acme/apps", { kind: "page", page: "apps" }],
     ["/acme/settings", { kind: "page", page: "settings" }],
     ["/acme/orchestration", { kind: "page", page: "orchestration" }],
     // Resource details
@@ -26,6 +27,7 @@ describe("parseTabSubject", () => {
     ["/acme/projects/p1", { kind: "project", id: "p1" }],
     ["/acme/autopilots/a1", { kind: "autopilot", id: "a1" }],
     ["/acme/skills/s1", { kind: "skill", id: "s1" }],
+    ["/acme/apps/gmail", { kind: "app", slug: "gmail" }],
     ["/acme/attachments/att1/preview", { kind: "attachment", id: "att1", filename: null }],
     [
       "/acme/attachments/att1/preview?name=report.pdf",
@@ -48,12 +50,13 @@ describe("parseTabSubject", () => {
       { kind: "runtime", machineId: "machine-1", runtimeId: "rt-2" },
     ],
     // Containers — selection (and archived sub-list) live in the query string
-    ["/acme/inbox", { kind: "inbox", selectedKey: null, archived: false }],
-    ["/acme/inbox?issue=MUL-9", { kind: "inbox", selectedKey: "MUL-9", archived: false }],
-    ["/acme/inbox?view=archived", { kind: "inbox", selectedKey: null, archived: true }],
+    ["/acme/inbox", { kind: "inbox", selectedKey: null, view: "inbox" }],
+    ["/acme/inbox?issue=MUL-9", { kind: "inbox", selectedKey: "MUL-9", view: "inbox" }],
+    ["/acme/inbox?view=archived", { kind: "inbox", selectedKey: null, view: "archived" }],
+    ["/acme/inbox?view=snoozed&issue=MUL-9", { kind: "inbox", selectedKey: "MUL-9", view: "snoozed" }],
     [
       "/acme/inbox?view=archived&issue=MUL-9",
-      { kind: "inbox", selectedKey: "MUL-9", archived: true },
+      { kind: "inbox", selectedKey: "MUL-9", view: "archived" },
     ],
     ["/acme/chat", { kind: "chat", sessionId: null }],
     ["/acme/chat?session=sess-1", { kind: "chat", sessionId: "sess-1" }],
@@ -104,10 +107,10 @@ describe("tabSubjectKey", () => {
   });
 
   it("distinguishes archived inbox and the attachment filename", () => {
-    expect(tabSubjectKey({ kind: "inbox", selectedKey: "k", archived: false })).toBe(
+    expect(tabSubjectKey({ kind: "inbox", selectedKey: "k", view: "inbox" })).toBe(
       "inbox:inbox:k",
     );
-    expect(tabSubjectKey({ kind: "inbox", selectedKey: "k", archived: true })).toBe(
+    expect(tabSubjectKey({ kind: "inbox", selectedKey: "k", view: "archived" })).toBe(
       "inbox:archived:k",
     );
     expect(

@@ -33,6 +33,7 @@ export type RouteIconName =
   | "Monitor"
   | "Server"
   | "BookOpenText"
+  | "Plug"
   | "Settings"
   | "File"
   | "FileText"
@@ -61,6 +62,7 @@ export type NavLabelKey =
   | "docs"
   | "skills"
   | "assets"
+  | "apps"
   | "settings"
   | "orchestration";
 
@@ -80,6 +82,7 @@ export type WorkspacePageKey =
   | "docs"
   | "skills"
   | "assets"
+  | "apps"
   | "settings"
   | "orchestration";
 
@@ -111,6 +114,7 @@ export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
   docs: { segment: "docs", icon: "FileText", navKey: "docs" },
   skills: { segment: "skills", icon: "BookOpenText", navKey: "skills" },
   assets: { segment: "assets", icon: "Archive", navKey: "assets" },
+  apps: { segment: "apps", icon: "Plug", navKey: "apps" },
   settings: { segment: "settings", icon: "Settings", navKey: "settings" },
   orchestration: { segment: "orchestration", icon: "Workflow", navKey: "orchestration" },
 };
