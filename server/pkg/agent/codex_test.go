@@ -4241,6 +4241,14 @@ func waitForCodexMarker(t *testing.T, path string, within time.Duration) {
 	t.Fatalf("timed out waiting for %s", path)
 }
 
+// Timing-budget note (MARO-529): same hardening rationale as the
+// AllowsContinuous* cases below. This legacy-event case was caught flaking
+// on a loaded host during whole-package runs on the pre-fix tree (100ms
+// timeout → 80ms first-turn ceiling against a 50ms sleep, a 30ms margin).
+// Margins now: first event 480-250=230ms, inter-event 600-450=150ms, and
+// 250+450=700ms of total silence still exceeds the 600ms timeout so a
+// regression that stops counting legacy agent_message as progress still
+// fails this test.
 func TestCodexExecuteLegacyFirstTurnMessageSatisfiesProgress(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -4256,14 +4264,14 @@ func TestCodexExecuteLegacyFirstTurnMessageSatisfiesProgress(t *testing.T) {
 		`read line`+"\n"+
 		`echo '{"jsonrpc":"2.0","id":3,"result":{}}'`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"codex/event","params":{"msg":{"type":"task_started"}}}'`+"\n"+
-		`sleep 0.05`+"\n"+
+		`sleep 0.25`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"codex/event","params":{"msg":{"type":"agent_message","message":"legacy alive"}}}'`+"\n"+
-		`sleep 0.07`+"\n"+
+		`sleep 0.45`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"codex/event","params":{"msg":{"type":"task_complete"}}}'`+"\n")
 
 	result := executeFakeCodex(t, fakePath, ExecOptions{
 		Timeout:                   5 * time.Second,
-		SemanticInactivityTimeout: 100 * time.Millisecond,
+		SemanticInactivityTimeout: 600 * time.Millisecond,
 	})
 	if result.Status != "completed" {
 		t.Fatalf("expected completed, got status=%q error=%q", result.Status, result.Error)
@@ -4273,6 +4281,17 @@ func TestCodexExecuteLegacyFirstTurnMessageSatisfiesProgress(t *testing.T) {
 	}
 }
 
+// Timing-budget note (MARO-529): this case asserts that continuous semantic
+// progress keeps the turn alive, so its margins must survive a loaded host.
+// The first-turn watchdog ceiling is 4/5 of the semantic timeout (600ms →
+// 480ms) and the fixture sleeps 250ms before the first progress event, so the
+// first-event margin is 480-250=230ms and the inter-event margin is
+// 600-250=350ms. The pre-hardening values (90ms timeout, 50ms sleeps) left a
+// 22ms first-event margin that scheduler jitter under load 15+ burned through
+// ~10-30% of runs. Do not shrink these margins: the sensitivity that matters
+// here is preserved because 3 sleeps × 250ms = 750ms of total silence still
+// exceeds the 600ms timeout, so a regression that stops resetting the
+// inactivity timer on progress events still fails this test.
 func TestCodexExecuteSemanticInactivityAllowsContinuousMessages(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -4288,16 +4307,16 @@ func TestCodexExecuteSemanticInactivityAllowsContinuousMessages(t *testing.T) {
 		`read line`+"\n"+
 		`echo '{"jsonrpc":"2.0","id":3,"result":{}}'`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thr-progress","turn":{"id":"turn-progress"}}}'`+"\n"+
-		`sleep 0.05`+"\n"+
+		`sleep 0.25`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thr-progress","item":{"type":"agentMessage","id":"msg-1","text":"still working"}}}'`+"\n"+
-		`sleep 0.05`+"\n"+
+		`sleep 0.25`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thr-progress","item":{"type":"commandExecution","id":"cmd-1","aggregatedOutput":"ok"}}}'`+"\n"+
-		`sleep 0.05`+"\n"+
+		`sleep 0.25`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thr-progress","turn":{"id":"turn-progress","status":"completed"}}}'`+"\n")
 
 	result := executeFakeCodex(t, fakePath, ExecOptions{
 		Timeout:                   5 * time.Second,
-		SemanticInactivityTimeout: 90 * time.Millisecond,
+		SemanticInactivityTimeout: 600 * time.Millisecond,
 	})
 	if result.Status != "completed" {
 		t.Fatalf("expected completed, got status=%q error=%q", result.Status, result.Error)
@@ -4307,6 +4326,16 @@ func TestCodexExecuteSemanticInactivityAllowsContinuousMessages(t *testing.T) {
 	}
 }
 
+// Timing-budget note (MARO-529): same hardening rationale as the
+// AllowsContinuousMessages case above. The first delta is emitted
+// immediately after turn/started with no sleep, but under load the fixture
+// shell itself is descheduled between those two echos (measured: 68ms at
+// load ~20 against a 120ms ceiling pre-hardening), so the whole first-event
+// budget is scheduler noise. The 600ms timeout gives the 4/5 first-turn
+// ceiling 480ms of margin, inter-event gaps are 250ms against the 600ms
+// timer, and 4 sleeps × 250ms = 1s of total silence still exceeds the
+// timeout — the test still catches a regression that stops treating delta
+// events as progress.
 func TestCodexExecuteSemanticInactivityAllowsContinuousDeltaProgress(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -4323,18 +4352,18 @@ func TestCodexExecuteSemanticInactivityAllowsContinuousDeltaProgress(t *testing.
 		`echo '{"jsonrpc":"2.0","id":3,"result":{}}'`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thr-delta","turn":{"id":"turn-delta"}}}'`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"item/commandExecution/outputDelta","params":{"threadId":"thr-delta","item":{"type":"commandExecution","id":"cmd-1"},"delta":"line 1\n"}}'`+"\n"+
-		`sleep 0.05`+"\n"+
+		`sleep 0.25`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"thr-delta","turnId":"turn-delta","itemId":"msg-1","delta":"thinking"}}'`+"\n"+
-		`sleep 0.05`+"\n"+
+		`sleep 0.25`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"item/fileChange/outputDelta","params":{"threadId":"thr-delta","item":{"type":"fileChange","id":"patch-1"},"delta":"patched"}}'`+"\n"+
-		`sleep 0.05`+"\n"+
+		`sleep 0.25`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"item/mcpToolCall/progress","params":{"threadId":"thr-delta","item":{"type":"mcpToolCall","id":"mcp-1"},"progress":{"message":"still running"}}}'`+"\n"+
-		`sleep 0.05`+"\n"+
+		`sleep 0.25`+"\n"+
 		`echo '{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thr-delta","turn":{"id":"turn-delta","status":"completed"}}}'`+"\n")
 
 	result := executeFakeCodex(t, fakePath, ExecOptions{
 		Timeout:                   5 * time.Second,
-		SemanticInactivityTimeout: 150 * time.Millisecond,
+		SemanticInactivityTimeout: 600 * time.Millisecond,
 	})
 	if result.Status != "completed" {
 		t.Fatalf("expected completed, got status=%q error=%q", result.Status, result.Error)
@@ -4507,8 +4536,12 @@ func TestCodexExecuteSemanticInactivityDoesNotAffectNormalTurnCompletion(t *test
 		`echo '{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thr-normal","turn":{"id":"turn-normal","status":"completed"}}}'`+"\n")
 
 	result := executeFakeCodex(t, fakePath, ExecOptions{
-		Timeout:                   5 * time.Second,
-		SemanticInactivityTimeout: 100 * time.Millisecond,
+		Timeout: 5 * time.Second,
+		// MARO-529: 600ms for the same loaded-host margin as the
+		// AllowsContinuous* cases — at 100ms the 4/5 first-turn ceiling is
+		// 80ms against back-to-back echos that scheduler jitter can stretch
+		// past 68ms (measured at load ~20), a 12ms margin.
+		SemanticInactivityTimeout: 600 * time.Millisecond,
 	})
 	if result.Status != "completed" {
 		t.Fatalf("expected completed, got status=%q error=%q", result.Status, result.Error)
@@ -4557,8 +4590,15 @@ func TestCodexExecuteRetriesAfterModelCatalogRefreshFailure(t *testing.T) {
 		`fi`+"\n")
 
 	result, messages := executeFakeCodexCollectingMessages(t, fakePath, ExecOptions{
-		Timeout:                   20 * time.Second,
-		SemanticInactivityTimeout: 100 * time.Millisecond,
+		Timeout: 20 * time.Second,
+		// MARO-529: 600ms loaded-host margin for the retry leg's back-to-back
+		// echos, see the AllowsContinuous* timing-budget note (100ms left a
+		// ~12ms first-turn margin; at load ~20 the deschedule between two
+		// adjacent echos was measured at 68ms). The stall leg is unaffected:
+		// its sleep 2 still exceeds the 4/5 first-turn ceiling (480ms), so
+		// attempt 1 still times out on the first-turn watchdog and the
+		// catalog-signal retry path is exercised exactly as before.
+		SemanticInactivityTimeout: 600 * time.Millisecond,
 	}, 20*time.Second)
 
 	if result.Status != "completed" {
@@ -4625,9 +4665,13 @@ func TestCodexExecuteRetryAfterCatalogFailureStartsFreshThreadForResume(t *testi
 		// Supplied by the daemon since MUL-5722: this package no longer holds
 		// the wording, because only the caller knows whether the surface's
 		// conversation can still be read.
-		ResumeContinuityNotice:    "[System notice] the previous conversation context could not be restored.\n\n",
-		Timeout:                   20 * time.Second,
-		SemanticInactivityTimeout: 100 * time.Millisecond,
+		ResumeContinuityNotice: "[System notice] the previous conversation context could not be restored.\n\n",
+		Timeout:                20 * time.Second,
+		// MARO-529: 600ms loaded-host margin for the retry leg's back-to-back
+		// echos, see the AllowsContinuous* timing-budget note (100ms left a
+		// ~12ms first-turn margin). The stall leg's sleep 2 still exceeds the
+		// 480ms first-turn ceiling, so the retry path is unchanged.
+		SemanticInactivityTimeout: 600 * time.Millisecond,
 	}, 20*time.Second)
 
 	if result.Status != "completed" {
@@ -4806,8 +4850,10 @@ func TestCodexExecuteTurnCompletionCanPrecedeTurnStartResponse(t *testing.T) {
 		`echo '{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thr-reordered","turn":{"id":"turn-reordered","status":"completed"}}}'`+"\n")
 
 	result := executeFakeCodex(t, fakePath, ExecOptions{
-		Timeout:                   5 * time.Second,
-		SemanticInactivityTimeout: 100 * time.Millisecond,
+		Timeout: 5 * time.Second,
+		// MARO-529: 600ms loaded-host margin, see the AllowsContinuous*
+		// timing-budget note (100ms left a 12ms first-turn margin).
+		SemanticInactivityTimeout: 600 * time.Millisecond,
 	})
 	if result.Status != "completed" {
 		t.Fatalf("expected completed, got status=%q error=%q", result.Status, result.Error)
@@ -4836,10 +4882,12 @@ func TestCodexExecuteResumeIgnoresPreviousTurnCompletion(t *testing.T) {
 		`echo '{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thr-resumed","turn":{"id":"turn-current","status":"completed"}}}'`+"\n")
 
 	result := executeFakeCodex(t, fakePath, ExecOptions{
-		ResumeSessionID:           "thr-resumed",
-		ResumeExpected:            true,
-		Timeout:                   5 * time.Second,
-		SemanticInactivityTimeout: 100 * time.Millisecond,
+		ResumeSessionID: "thr-resumed",
+		ResumeExpected:  true,
+		Timeout:         5 * time.Second,
+		// MARO-529: 600ms loaded-host margin, see the AllowsContinuous*
+		// timing-budget note (100ms left a 12ms first-turn margin).
+		SemanticInactivityTimeout: 600 * time.Millisecond,
 	})
 	if result.Status != "completed" {
 		t.Fatalf("expected completed, got status=%q error=%q", result.Status, result.Error)
