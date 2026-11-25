@@ -358,3 +358,91 @@ func TestIssueBlockerGuestSeesOnlyItsProjectsReferences(t *testing.T) {
 		t.Fatalf("member lost blockers: %+v", got)
 	}
 }
+
+// "Don't start yet" on the write that makes a released issue startable is an
+// answer to that release: the dependency rule must not start the run anyway.
+func TestIssueBlockerReleaseHonorsSuppressedRun(t *testing.T) {
+	agent := seededReadyAgentID(t)
+	svc := service.IssueWakeupService{Tasks: testHandler.TaskService}
+	tick := func() {
+		t.Helper()
+		if err := svc.TickWorkspaces(context.Background(), parseUUID(testWorkspaceID)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writes := map[string]func(id string, updates map[string]any){
+		"single": func(id string, updates map[string]any) {
+			updateIssueForTest(t, id, updates).Want(http.StatusOK)
+		},
+		"batch": func(id string, updates map[string]any) {
+			testutil.Call(t, testHandler.BatchUpdateIssues, newRequest("POST", "/api/issues/batch-update?workspace_id="+testWorkspaceID, map[string]any{
+				"issue_ids": []string{id}, "updates": updates,
+			})).Want(http.StatusOK)
+		},
+	}
+	for name, write := range writes {
+		t.Run(name, func(t *testing.T) {
+			prerequisite := blockerTestIssue(t, map[string]any{"status": "todo"})
+			issue := blockerTestIssue(t, map[string]any{"status": "backlog", "assignee_type": "agent", "assignee_id": agent, "blocked_by": []string{prerequisite.ID}})
+			runs := func() int {
+				return dbfx.Count(t, "SELECT count(*) FROM agent_task_queue WHERE issue_id=$1", issue.ID)
+			}
+			updateIssueForTest(t, prerequisite.ID, map[string]any{"status": "done"}).Want(http.StatusOK)
+			tick()
+			write(issue.ID, map[string]any{"status": "todo", "suppress_run": true})
+			tick()
+			if n := runs(); n != 0 {
+				t.Fatalf("suppressed promotion started %d runs", n)
+			}
+			// Later moves between active statuses are not a new release.
+			updateIssueForTest(t, issue.ID, map[string]any{"status": "in_progress"}).Want(http.StatusOK)
+			tick()
+			if n := runs(); n != 0 {
+				t.Fatalf("status move after a suppressed promotion started %d runs", n)
+			}
+			// A new wait is delivered as usual.
+			updateIssueForTest(t, prerequisite.ID, map[string]any{"status": "todo"}).Want(http.StatusOK)
+			updateIssueForTest(t, prerequisite.ID, map[string]any{"status": "done"}).Want(http.StatusOK)
+			tick()
+			if n := runs(); n != 1 {
+				t.Fatalf("new wait started %d runs, want 1", n)
+			}
+		})
+	}
+}
+
+// A release names the blockers to the agent it starts. The timeline and the
+// inbox are read by people with different access, so neither names them.
+func TestIssueBlockerReleaseHidesReferencesFromGuest(t *testing.T) {
+	f := newGuestFixture(t)
+	ctx := context.Background()
+	for _, blocker := range []string{f.otherIssue, f.looseIssue} {
+		if err := service.AddIssueBlocker(ctx, testHandler.Queries, parseUUID(testWorkspaceID), parseUUID(f.sharedIssue), parseUUID(blocker), "member", parseUUID(testUserID)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		dbfx.Exec(t, "DELETE FROM issue_blocker WHERE issue_id=$1", f.sharedIssue)
+		dbfx.Exec(t, "DELETE FROM inbox_item WHERE issue_id=$1", f.sharedIssue)
+		cleanupChildDoneIssue(f.sharedIssue)
+	})
+	dbfx.Exec(t, "UPDATE issue SET status='todo',assignee_type='member',assignee_id=$2 WHERE id=$1", f.sharedIssue, f.guest)
+	dbfx.Exec(t, "UPDATE issue SET status='done' WHERE id = ANY($1::uuid[])", []string{f.otherIssue, f.looseIssue})
+	svc := service.IssueWakeupService{Tasks: testHandler.TaskService}
+	if err := svc.TickWorkspaces(ctx, parseUUID(testWorkspaceID)); err != nil {
+		t.Fatal(err)
+	}
+	var inbox string
+	dbfx.QueryRow(t, "SELECT details::text FROM inbox_item WHERE issue_id=$1 AND type='blockers_done'", f.sharedIssue).Scan(&inbox)
+	timeline := guestRequest(t, testHandler.ListTimeline, f.guest, http.MethodGet, "/api/issues/"+f.sharedIssue+"/timeline", nil, "id", f.sharedIssue).Want(http.StatusOK).Body.String()
+	if !strings.Contains(timeline, "wakeup_triggered") {
+		t.Fatalf("release left no timeline entry: %s", timeline)
+	}
+	for name, got := range map[string]string{"timeline": timeline, "inbox": inbox} {
+		for _, secret := range []string{f.otherIssue, f.looseIssue, f.marker + " other issue", f.marker + " loose issue"} {
+			if strings.Contains(got, secret) {
+				t.Errorf("guest %s names a blocker it can't open (%s): %s", name, secret, got)
+			}
+		}
+	}
+}
